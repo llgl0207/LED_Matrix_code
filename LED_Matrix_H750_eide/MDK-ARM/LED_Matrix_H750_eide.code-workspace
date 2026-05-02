@@ -1,0 +1,19 @@
+{
+    "folders": [
+        {
+            "path": "."
+        },
+        {
+            "path": ".."
+        },
+        {
+            "path": "../../IDF_S3"
+        },
+        {
+            "name": "LED_Matrix_code",
+            "path": "../.."
+        }
+    ],
+    "settings": {},
+    "extensions": {}
+}
