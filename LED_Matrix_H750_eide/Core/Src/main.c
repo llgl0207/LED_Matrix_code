@@ -46,6 +46,7 @@
 
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN PV */
+uint8_t currentFrame = 0;  // 当前显示的帧索引 (0-119)
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -109,18 +110,77 @@ int main(void)
   // 使能定时器DMA请求（必须）
   __HAL_TIM_ENABLE_DMA(&htim3, TIM_DMA_UPDATE);
   __HAL_TIM_ENABLE_DMA(&htim8, TIM_DMA_UPDATE);
+  
+  // 初始化LED缓冲区
   ledBufferInit();
+  
+  // 定义颜色数组（8种颜色）
+  uint32_t colors[8] = {
+    0xFF0000,  // 红色
+    0x00FF00,  // 绿色
+    0x0000FF,  // 蓝色
+    0xFFFF00,  // 黄色
+    0xFF00FF,  // 紫色
+    0x00FFFF,  // 青色
+    0xFF8800,  // 橙色
+    0xFF88FF   // 粉色
+  };
+  
+  // 初始化120个柱面的流水灯效果
+  // 顺序：displayMem[0].A -> displayMem[0].B -> displayMem[1].A -> displayMem[1].B...
+  for (int frameIdx = 0; frameIdx < CYLINDER_NUM; frameIdx++) {
+    // 计算当前frame对应的displayMem索引和buffer类型(A/B)
+    int memIdx = frameIdx / 2;
+    uint8_t isBufferA = (frameIdx % 2 == 0);
+    
+    // 计算当前frame对应的LED位置(0-15)和颜色索引
+    int ledPos = frameIdx % ONE_BUS_LED_NUM;
+    int colorIdx = frameIdx / ONE_BUS_LED_NUM;
+    
+    // 获取当前颜色
+    uint32_t color = colors[colorIdx % 8];
+    
+    // 清除当前buffer
+    if (isBufferA) {
+      ledBufferClear(displayMem[memIdx].ledBufferA);
+      // 在当前LED位置设置颜色
+      for (int io = 0; io < 16; io++) {
+        ledSetColorOne(displayMem[memIdx].ledBufferA, ledPos, io, color);
+      }
+    } else {
+      ledBufferClear(displayMem[memIdx].ledBufferB);
+      // 在当前LED位置设置颜色
+      for (int io = 0; io < 16; io++) {
+        ledSetColorOne(displayMem[memIdx].ledBufferB, ledPos, io, color);
+      }
+    }
+  }
+  //ledBufferClear(displayMem[0].ledBufferA); // 初始状态全灭
+  //ledSetColorOne(displayMem[0].ledBufferA, 1, 11, 0xFF0000); // 第一个LED红色
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    // 启动DMA传输
-    ledSetColorOne(displayMem[0].ledBufferA, 0, 0, 0x0F0F0F); // 红色
-    HAL_DMA_Start_IT(&hdma_tim3_up, (uint32_t)displayMem[0].ledBufferA, (uint32_t)&GPIOD->ODR, 24*4);
-    HAL_DMA_Start_IT(&hdma_tim8_up, (uint32_t)displayMem[0].ledBufferB, (uint32_t)&GPIOE->ODR, 24*4);
-    HAL_Delay(1000);
+    // 计算当前frame对应的displayMem索引和buffer类型(A/B)
+    int memIdx = currentFrame / 2;
+    uint8_t isBufferA = (currentFrame % 2 == 0);
+    
+    // 启动DMA传输显示当前帧
+    if (isBufferA) {
+      HAL_DMA_Start_IT(&hdma_tim3_up, (uint32_t)displayMem[memIdx].ledBufferA, (uint32_t)&GPIOD->ODR, ONE_BUS_LED_NUM*24*4);
+      //HAL_DMA_Start_IT(&hdma_tim8_up, (uint32_t)displayMem[memIdx].ledBufferB, (uint32_t)&GPIOE->ODR, ONE_BUS_LED_NUM*24*4);
+    } else {
+      HAL_DMA_Start_IT(&hdma_tim3_up, (uint32_t)displayMem[memIdx].ledBufferB, (uint32_t)&GPIOE->ODR, ONE_BUS_LED_NUM*24*4);
+      //HAL_DMA_Start_IT(&hdma_tim8_up, (uint32_t)displayMem[memIdx].ledBufferA, (uint32_t)&GPIOE->ODR, ONE_BUS_LED_NUM*24*4);
+    }
+    //HAL_DMA_Start_IT(&hdma_tim3_up, (uint32_t)displayMem[0].ledBufferA, (uint32_t)&GPIOE->ODR, ONE_BUS_LED_NUM*24*4);
+    // 延迟一段时间
+    HAL_Delay(50);
+    
+    // 更新当前帧索引（循环120个柱面）
+    currentFrame = (currentFrame + 1) % CYLINDER_NUM;
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */

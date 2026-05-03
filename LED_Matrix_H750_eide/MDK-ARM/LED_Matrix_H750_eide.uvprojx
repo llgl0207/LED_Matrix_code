@@ -366,7 +366,7 @@
             <TextAddressRange />
             <DataAddressRange />
             <pXoBase />
-            <ScatterFile />
+            <ScatterFile>STM32H750VBT6_FLASH.sct</ScatterFile>
             <IncludeLibs />
             <IncludeLibsPath />
             <Misc />

@@ -595,15 +595,14 @@ WAKEUP_PIN_IRQHandler
                 
                  ELSE
                 
-                 IMPORT  __use_two_region_memory
                  EXPORT  __user_initial_stackheap
                  
 __user_initial_stackheap
 
-                 LDR     R0, =  Heap_Mem
-                 LDR     R1, =(Stack_Mem + Stack_Size)
-                 LDR     R2, = (Heap_Mem +  Heap_Size)
-                 LDR     R3, = Stack_Mem
+                 LDR     R0, =  __heap_base
+                 LDR     R1, = __initial_sp
+                 LDR     R2, = __heap_limit
+                 LDR     R3, = __initial_sp
                  BX      LR
 
                  ALIGN
@@ -611,4 +610,3 @@ __user_initial_stackheap
                  ENDIF
 
                  END
-

@@ -114,7 +114,7 @@ targets:
             ro-base: ""
             rw-base: ""
             xo-base: ""
-        scatterFilePath: ""
+        scatterFilePath: STM32H750VBT6_FLASH.sct
         storageLayout:
           RAM:
             - id: 1
