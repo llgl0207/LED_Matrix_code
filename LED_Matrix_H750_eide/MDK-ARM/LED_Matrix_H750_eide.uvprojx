@@ -479,6 +479,11 @@
               <FileType>1</FileType>
               <FilePath>../Core/Src/stm32h7xx_hal_msp.c</FilePath>
             </File>
+            <File>
+              <FileName>led_matrix.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../Core/Src/led_matrix.c</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>
@@ -725,4 +730,3 @@
     <files />
   </RTE>
 </Project>
-

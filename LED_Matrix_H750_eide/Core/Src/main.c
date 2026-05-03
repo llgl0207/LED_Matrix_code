@@ -109,7 +109,7 @@ int main(void)
   // 使能定时器DMA请求（必须）
   __HAL_TIM_ENABLE_DMA(&htim3, TIM_DMA_UPDATE);
   __HAL_TIM_ENABLE_DMA(&htim8, TIM_DMA_UPDATE);
-
+  ledBufferInit();
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -117,8 +117,9 @@ int main(void)
   while (1)
   {
     // 启动DMA传输
-    HAL_DMA_Start_IT(&hdma_tim3_up, (uint32_t)g_led_frame, (uint32_t)&GPIOD->ODR, 20);
-    HAL_DMA_Start_IT(&hdma_tim8_up, (uint32_t)g_led_frame, (uint32_t)&GPIOE->ODR, 20);
+    ledSetColorOne(displayMem[0].ledBufferA, 0, 0, 0x0F0F0F); // 红色
+    HAL_DMA_Start_IT(&hdma_tim3_up, (uint32_t)displayMem[0].ledBufferA, (uint32_t)&GPIOD->ODR, 24*4);
+    HAL_DMA_Start_IT(&hdma_tim8_up, (uint32_t)displayMem[0].ledBufferB, (uint32_t)&GPIOE->ODR, 24*4);
     HAL_Delay(1000);
     /* USER CODE END WHILE */
 

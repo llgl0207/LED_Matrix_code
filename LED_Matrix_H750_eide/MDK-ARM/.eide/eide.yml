@@ -27,7 +27,7 @@ virtualFolder:
                 - path: ../Core/Src/tim.c
                 - path: ../Core/Src/stm32h7xx_it.c
                 - path: ../Core/Src/stm32h7xx_hal_msp.c
-                - path: ../Core/Src/LED_Matrix_Driver.c
+                - path: ../Core/Src/led_matrix.c
               folders: []
     - name: Drivers
       files: []
