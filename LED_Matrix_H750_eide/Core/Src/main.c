@@ -46,13 +46,27 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-int a = 0;
-static uint16_t dmaPattern[2] = {0xFFFF, 0x0000};
-volatile uint32_t spi_tx_data = 0xA55A0000;
-volatile uint32_t spi_rx_data = 0;
-volatile uint32_t spi_rx_count = 0;
-volatile uint32_t spi_last_rx_word = 0;
-volatile uint32_t spi_last_tx_word = 0xA55A0000;
+#define LED_CHAIN_COUNT              32U
+#define LEDS_PER_CHAIN               16U
+#define LED_BITS_PER_PIXEL           24U
+#define LED_SLOTS_PER_BIT            4U
+#define LED_RESET_TIME_US            280U
+#define LED_SLOT_TIME_NS             312U
+#define LED_BRIGHTNESS_SHIFT         3U /* right shift per color component: 0=full,1=1/2,2=1/4,3=1/8 */
+#define LED_RESET_SLOTS              ((LED_RESET_TIME_US * 1000U + LED_SLOT_TIME_NS - 1U) / LED_SLOT_TIME_NS)
+#define LED_FRAME_SLOTS              ((LEDS_PER_CHAIN * LED_BITS_PER_PIXEL * LED_SLOTS_PER_BIT) + LED_RESET_SLOTS)
+#define LED_FRAME_BYTES              (LED_FRAME_SLOTS * sizeof(uint16_t))
+#define LED_FRAME_CACHE_BYTES        ((LED_FRAME_BYTES + 31U) & ~31U)
+
+static uint8_t g_tim3_frame_storage[LED_FRAME_CACHE_BYTES + 31U];
+static uint8_t g_tim8_frame_storage[LED_FRAME_CACHE_BYTES + 31U];
+static uint16_t *g_tim3_frame = (uint16_t *)0;
+static uint16_t *g_tim8_frame = (uint16_t *)0;
+static uint32_t g_led_grb[LED_CHAIN_COUNT][LEDS_PER_CHAIN];
+static volatile uint8_t g_frame_busy = 0U;
+static volatile uint8_t g_tim3_done = 0U;
+static volatile uint8_t g_tim8_done = 0U;
+static uint8_t g_demo_phase = 0U;
 extern DMA_HandleTypeDef hdma_tim3_up;
 extern DMA_HandleTypeDef hdma_tim8_up;
 /* USER CODE END PV */
@@ -61,11 +75,207 @@ extern DMA_HandleTypeDef hdma_tim8_up;
 void SystemClock_Config(void);
 static void MPU_Config(void);
 /* USER CODE BEGIN PFP */
+static void LED_LoadDemoPattern(uint8_t phase);
+static void LED_InitFrameBuffers(void);
+static void LED_BuildFrame(void);
+static void LED_CleanFrameCache(void);
+static void LED_StartFrame(void);
+static void LED_StopFrame(void);
+static void LED_OnTim3DmaComplete(DMA_HandleTypeDef *hdma);
+static void LED_OnTim8DmaComplete(DMA_HandleTypeDef *hdma);
+static void LED_OnDmaError(DMA_HandleTypeDef *hdma);
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+static void LED_LoadDemoPattern(uint8_t phase)
+{
+  uint32_t chain;
+  uint32_t led;
+
+  for (chain = 0U; chain < LED_CHAIN_COUNT; chain++)
+  {
+    for (led = 0U; led < LEDS_PER_CHAIN; led++)
+    {
+      uint8_t wave = (uint8_t)((chain * 7U) + (led * 13U) + phase * 11U);
+      uint8_t green = wave;
+      uint8_t red = (uint8_t)(255U - wave);
+      uint8_t blue = (uint8_t)((chain * 9U) ^ (led * 17U) ^ phase);
+      g_led_grb[chain][led] = ((uint32_t)green << 16) | ((uint32_t)red << 8) | (uint32_t)blue;
+    }
+  }
+}
+
+static void LED_InitFrameBuffers(void)
+{
+  uintptr_t tim3_base;
+  uintptr_t tim8_base;
+
+  tim3_base = (uintptr_t)g_tim3_frame_storage;
+  tim8_base = (uintptr_t)g_tim8_frame_storage;
+  tim3_base = (tim3_base + 31U) & ~(uintptr_t)31U;
+  tim8_base = (tim8_base + 31U) & ~(uintptr_t)31U;
+
+  g_tim3_frame = (uint16_t *)tim3_base;
+  g_tim8_frame = (uint16_t *)tim8_base;
+}
+
+static void LED_BuildFrame(void)
+{
+  uint32_t slotIndex = 0U;
+  uint32_t ledIndex;
+  uint32_t bitIndex;
+  uint32_t chainIndex;
+
+  for (ledIndex = 0U; ledIndex < LEDS_PER_CHAIN; ledIndex++)
+  {
+    for (bitIndex = 0U; bitIndex < LED_BITS_PER_PIXEL; bitIndex++)
+    {
+      uint16_t portD = 0xFFFFU;
+      uint16_t portE = 0xFFFFU;
+
+      g_tim3_frame[slotIndex] = portD;
+      g_tim8_frame[slotIndex] = portE;
+      slotIndex++;
+
+      portD = 0U;
+      portE = 0U;
+
+          for (chainIndex = 0U; chainIndex < LED_CHAIN_COUNT; chainIndex++)
+      {
+            uint32_t v = g_led_grb[chainIndex][ledIndex];
+            uint8_t g = (uint8_t)((v >> 16U) & 0xFFU);
+            uint8_t r = (uint8_t)((v >> 8U) & 0xFFU);
+            uint8_t b = (uint8_t)(v & 0xFFU);
+
+            /* 应用全局亮度缩放（右移 LED_BRIGHTNESS_SHIFT 位） */
+            g = (uint8_t)(g >> LED_BRIGHTNESS_SHIFT);
+            r = (uint8_t)(r >> LED_BRIGHTNESS_SHIFT);
+            b = (uint8_t)(b >> LED_BRIGHTNESS_SHIFT);
+
+            uint32_t scaled = ((uint32_t)g << 16U) | ((uint32_t)r << 8U) | (uint32_t)b;
+
+            if ((scaled & (1UL << (23U - bitIndex))) != 0UL)
+            {
+              if (chainIndex < 16U)
+              {
+                portD |= (uint16_t)(1U << chainIndex);
+              }
+              else
+              {
+                portE |= (uint16_t)(1U << (chainIndex - 16U));
+              }
+            }
+      }
+
+      g_tim3_frame[slotIndex] = portD;
+      g_tim8_frame[slotIndex] = portE;
+      slotIndex++;
+
+      g_tim3_frame[slotIndex] = 0U;
+      g_tim8_frame[slotIndex] = 0U;
+      slotIndex++;
+
+      g_tim3_frame[slotIndex] = 0U;
+      g_tim8_frame[slotIndex] = 0U;
+      slotIndex++;
+    }
+  }
+
+  while (slotIndex < LED_FRAME_SLOTS)
+  {
+    g_tim3_frame[slotIndex] = 0U;
+    g_tim8_frame[slotIndex] = 0U;
+    slotIndex++;
+  }
+}
+
+static void LED_CleanFrameCache(void)
+{
+}
+
+static void LED_StopFrame(void)
+{
+  (void)HAL_TIM_Base_Stop(&htim3);
+  (void)HAL_TIM_Base_Stop(&htim8);
+  g_frame_busy = 0U;
+}
+
+static void LED_StartFrame(void)
+{
+  static int a = 0 ;
+  a++ ;
+  if (g_frame_busy != 0U)
+  {
+    return;
+  }
+
+  if ((g_tim3_frame == (uint16_t *)0) || (g_tim8_frame == (uint16_t *)0))
+  {
+    LED_InitFrameBuffers();
+  }
+
+  g_frame_busy = 1U;
+  g_tim3_done = 0U;
+  g_tim8_done = 0U;
+
+  LED_LoadDemoPattern(g_demo_phase++);
+  LED_BuildFrame();
+  LED_CleanFrameCache();
+
+  __HAL_TIM_SET_COUNTER(&htim3, 0U);
+  __HAL_TIM_SET_COUNTER(&htim8, 0U);
+  __HAL_TIM_CLEAR_FLAG(&htim3, TIM_FLAG_UPDATE);
+  __HAL_TIM_CLEAR_FLAG(&htim8, TIM_FLAG_UPDATE);
+
+  if (HAL_DMA_Start_IT(&hdma_tim3_up, (uint32_t)g_tim3_frame, (uint32_t)&GPIOD->ODR, LED_FRAME_SLOTS) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  if (HAL_DMA_Start_IT(&hdma_tim8_up, (uint32_t)g_tim8_frame, (uint32_t)&GPIOE->ODR, LED_FRAME_SLOTS) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  if (HAL_TIM_Base_Start(&htim3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  if (HAL_TIM_Base_Start(&htim8) != HAL_OK)
+  {
+    Error_Handler();
+  }
+}
+
+static void LED_OnTim3DmaComplete(DMA_HandleTypeDef *hdma)
+{
+  (void)hdma;
+  g_tim3_done = 1U;
+  if (g_tim8_done != 0U)
+  {
+    LED_StopFrame();
+  }
+}
+
+static void LED_OnTim8DmaComplete(DMA_HandleTypeDef *hdma)
+{
+  (void)hdma;
+  g_tim8_done = 1U;
+  if (g_tim3_done != 0U)
+  {
+    LED_StopFrame();
+  }
+}
+
+static void LED_OnDmaError(DMA_HandleTypeDef *hdma)
+{
+  (void)hdma;
+  Error_Handler();
+}
 
 /* USER CODE END 0 */
 
@@ -107,28 +317,19 @@ int main(void)
   MX_TIM8_Init();
   MX_SPI1_Init();
   /* USER CODE BEGIN 2 */
-  if (HAL_DMA_Start(&hdma_tim3_up, (uint32_t)dmaPattern, (uint32_t)&GPIOD->ODR, 2) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  if (HAL_DMA_Start(&hdma_tim8_up, (uint32_t)dmaPattern, (uint32_t)&GPIOE->ODR, 2) != HAL_OK)
-  {
-    Error_Handler();
-  }
+  hdma_tim3_up.XferCpltCallback = LED_OnTim3DmaComplete;
+  hdma_tim3_up.XferErrorCallback = LED_OnDmaError;
+  hdma_tim8_up.XferCpltCallback = LED_OnTim8DmaComplete;
+  hdma_tim8_up.XferErrorCallback = LED_OnDmaError;
+
   __HAL_TIM_ENABLE_DMA(&htim8, TIM_DMA_UPDATE);
   __HAL_TIM_ENABLE_DMA(&htim3, TIM_DMA_UPDATE);
-  if (HAL_TIM_Base_Start(&htim8) != HAL_OK)
+  if (HAL_TIM_Base_Start_IT(&htim2) != HAL_OK)
   {
     Error_Handler();
   }
-  if (HAL_TIM_Base_Start(&htim3) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  if (HAL_SPI_TransmitReceive_IT(&hspi1, (uint8_t*)&spi_tx_data, (uint8_t*)&spi_rx_data, 1) != HAL_OK)
-  {
-    Error_Handler();
-  }
+
+  LED_StartFrame();
 
   /* USER CODE END 2 */
 
@@ -136,29 +337,12 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    a++;
+    __WFI();
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
-}
-
-void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef *hspi)
-{
-  if (hspi->Instance == SPI1)
-  {
-    spi_last_rx_word = spi_rx_data;
-    spi_rx_count++;
-    spi_last_tx_word = 0xA55A0000 | (spi_rx_data & 0xFF);
-    spi_tx_data = spi_last_tx_word;
-    HAL_SPI_TransmitReceive_IT(&hspi1, (uint8_t*)&spi_tx_data, (uint8_t*)&spi_rx_data, 1);
-  }
-}
-
-void SPI1_IRQHandler(void)
-{
-  HAL_SPI_IRQHandler(&hspi1);
 }
 
 /**
@@ -221,6 +405,14 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
+
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+  if (htim->Instance == TIM2)
+  {
+    LED_StartFrame();
+  }
+}
 
 /* USER CODE END 4 */
 
