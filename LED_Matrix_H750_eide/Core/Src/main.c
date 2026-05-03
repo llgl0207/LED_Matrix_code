@@ -94,16 +94,44 @@ static void LED_LoadDemoPattern(uint8_t phase)
 {
   uint32_t chain;
   uint32_t led;
+  uint8_t step;
 
+  step = (uint8_t)(phase & 0x0FU);
   for (chain = 0U; chain < LED_CHAIN_COUNT; chain++)
   {
+    uint8_t distance;
+    uint8_t delta;
+    uint8_t brightness;
+    uint32_t grb;
+
+    /* 0~15 分别表示每一侧从外到内的 16 个通道 */
+    distance = (uint8_t)(chain & 0x0FU);
+    delta = (uint8_t)((distance + 16U - step) & 0x0FU);
+
+    if (delta == 0U)
+    {
+      brightness = 255U;
+    }
+    else if (delta == 1U)
+    {
+      brightness = 96U;
+    }
+    else if (delta == 2U)
+    {
+      brightness = 32U;
+    }
+    else
+    {
+      brightness = 0U;
+    }
+
+    grb = ((uint32_t)brightness << 16U) |
+          ((uint32_t)brightness << 8U) |
+          (uint32_t)brightness;
+
     for (led = 0U; led < LEDS_PER_CHAIN; led++)
     {
-      uint8_t wave = (uint8_t)((chain * 7U) + (led * 13U) + phase * 11U);
-      uint8_t green = wave;
-      uint8_t red = (uint8_t)(255U - wave);
-      uint8_t blue = (uint8_t)((chain * 9U) ^ (led * 17U) ^ phase);
-      g_led_grb[chain][led] = ((uint32_t)green << 16) | ((uint32_t)red << 8) | (uint32_t)blue;
+      g_led_grb[chain][led] = grb;
     }
   }
 }
@@ -200,6 +228,10 @@ static void LED_StopFrame(void)
 {
   (void)HAL_TIM_Base_Stop(&htim3);
   (void)HAL_TIM_Base_Stop(&htim8);
+  __HAL_TIM_DISABLE_DMA(&htim3, TIM_DMA_UPDATE);
+  __HAL_TIM_DISABLE_DMA(&htim8, TIM_DMA_UPDATE);
+  GPIOD->ODR = 0U;
+  GPIOE->ODR = 0U;
   g_frame_busy = 0U;
 }
 
@@ -225,6 +257,8 @@ static void LED_StartFrame(void)
   LED_BuildFrame();
   LED_CleanFrameCache();
 
+  __HAL_TIM_DISABLE_DMA(&htim3, TIM_DMA_UPDATE);
+  __HAL_TIM_DISABLE_DMA(&htim8, TIM_DMA_UPDATE);
   __HAL_TIM_SET_COUNTER(&htim3, 0U);
   __HAL_TIM_SET_COUNTER(&htim8, 0U);
   __HAL_TIM_CLEAR_FLAG(&htim3, TIM_FLAG_UPDATE);
@@ -239,6 +273,9 @@ static void LED_StartFrame(void)
   {
     Error_Handler();
   }
+
+  __HAL_TIM_ENABLE_DMA(&htim3, TIM_DMA_UPDATE);
+  __HAL_TIM_ENABLE_DMA(&htim8, TIM_DMA_UPDATE);
 
   if (HAL_TIM_Base_Start(&htim3) != HAL_OK)
   {
@@ -321,9 +358,6 @@ int main(void)
   hdma_tim3_up.XferErrorCallback = LED_OnDmaError;
   hdma_tim8_up.XferCpltCallback = LED_OnTim8DmaComplete;
   hdma_tim8_up.XferErrorCallback = LED_OnDmaError;
-
-  __HAL_TIM_ENABLE_DMA(&htim8, TIM_DMA_UPDATE);
-  __HAL_TIM_ENABLE_DMA(&htim3, TIM_DMA_UPDATE);
   if (HAL_TIM_Base_Start_IT(&htim2) != HAL_OK)
   {
     Error_Handler();
