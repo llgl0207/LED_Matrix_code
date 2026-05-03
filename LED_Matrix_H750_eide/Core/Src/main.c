@@ -97,15 +97,15 @@ static void LED_LoadDemoPattern(uint8_t phase)
   uint8_t step;
 
   step = (uint8_t)(phase & 0x0FU);
-  for (chain = 0U; chain < LED_CHAIN_COUNT; chain++)
+  for (led = 0U; led < LEDS_PER_CHAIN; led++)
   {
     uint8_t distance;
     uint8_t delta;
     uint8_t brightness;
     uint32_t grb;
 
-    /* 0~15 分别表示每一侧从外到内的 16 个通道 */
-    distance = (uint8_t)(chain & 0x0FU);
+    /* 按每条总线的灯序流动：led=0 视为最外侧，led=15 视为最内侧 */
+    distance = (uint8_t)led;
     delta = (uint8_t)((distance + 16U - step) & 0x0FU);
 
     if (delta == 0U)
@@ -129,7 +129,7 @@ static void LED_LoadDemoPattern(uint8_t phase)
           ((uint32_t)brightness << 8U) |
           (uint32_t)brightness;
 
-    for (led = 0U; led < LEDS_PER_CHAIN; led++)
+    for (chain = 0U; chain < LED_CHAIN_COUNT; chain++)
     {
       g_led_grb[chain][led] = grb;
     }
