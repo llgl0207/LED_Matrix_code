@@ -23,10 +23,10 @@ virtualFolder:
                 - path: ../Core/Src/main.c
                 - path: ../Core/Src/gpio.c
                 - path: ../Core/Src/dma.c
+                - path: ../Core/Src/spi.c
                 - path: ../Core/Src/tim.c
                 - path: ../Core/Src/stm32h7xx_it.c
                 - path: ../Core/Src/stm32h7xx_hal_msp.c
-                - path: ../Core/Src/spi.c
               folders: []
     - name: Drivers
       files: []
@@ -49,10 +49,10 @@ virtualFolder:
             - path: ../Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_hal_i2c.c
             - path: ../Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_hal_i2c_ex.c
             - path: ../Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_hal_exti.c
-            - path: ../Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_hal_tim.c
-            - path: ../Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_hal_tim_ex.c
             - path: ../Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_hal_spi.c
             - path: ../Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_hal_spi_ex.c
+            - path: ../Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_hal_tim.c
+            - path: ../Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_hal_tim_ex.c
           folders: []
         - name: CMSIS
           files:
@@ -64,7 +64,7 @@ virtualFolder:
 dependenceList: []
 outDir: build
 miscInfo:
-  uid: 935e5392b11ca65900a518436d38b9bd
+  uid: 6c1145f8e5c18d9bccc59e0c7d4f8d63
 targets:
   LED_Matrix_H750_eide:
     cppPreprocessAttrs:
@@ -80,8 +80,7 @@ targets:
         - ../Drivers/CMSIS/Include
         - .cmsis/include
         - RTE/_LED_Matrix_H750_eide
-      libList:
-        - ../Core/Inc
+      libList: []
     excludeList: []
     settings: {}
     toolchain: AC5
