@@ -3,7 +3,7 @@
 #include "main.h"
 #include "gpio.h"
 #define ONE_BUS_LED_NUM 16
-#define CYLINDER_NUM 120
+#define CYLINDER_NUM 140
 #define RGB_PROTOCOL 1
 //0: RGB协议，1: GRB协议
 #define BRIGHT_SHIFT 4 // 亮度调整位数，0~7，数值越大亮度越暗
