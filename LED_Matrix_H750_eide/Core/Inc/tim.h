@@ -38,6 +38,11 @@ extern TIM_HandleTypeDef htim3;
 
 extern TIM_HandleTypeDef htim8;
 
+/* USER CODE BEGIN ET */
+extern DMA_HandleTypeDef hdma_tim3_up;
+extern DMA_HandleTypeDef hdma_tim8_up;
+/* USER CODE END ET */
+
 /* USER CODE BEGIN Private defines */
 
 /* USER CODE END Private defines */
