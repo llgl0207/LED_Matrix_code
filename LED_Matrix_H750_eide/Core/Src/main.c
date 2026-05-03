@@ -25,7 +25,10 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+// 包含STM32H7系列芯片的头文件，提供寄存器定义和基本功能
 #include "stm32h7xx.h"
+// 包含LED矩阵驱动头文件
+#include "LED_Matrix_Driver.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -46,27 +49,9 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-#define LED_CHAIN_COUNT              32U
-#define LEDS_PER_CHAIN               16U
-#define LED_BITS_PER_PIXEL           24U
-#define LED_SLOTS_PER_BIT            4U
-#define LED_RESET_TIME_US            280U
-#define LED_SLOT_TIME_NS             312U
-#define LED_BRIGHTNESS_SHIFT         3U /* right shift per color component: 0=full,1=1/2,2=1/4,3=1/8 */
-#define LED_RESET_SLOTS              ((LED_RESET_TIME_US * 1000U + LED_SLOT_TIME_NS - 1U) / LED_SLOT_TIME_NS)
-#define LED_FRAME_SLOTS              ((LEDS_PER_CHAIN * LED_BITS_PER_PIXEL * LED_SLOTS_PER_BIT) + LED_RESET_SLOTS)
-#define LED_FRAME_BYTES              (LED_FRAME_SLOTS * sizeof(uint16_t))
-#define LED_FRAME_CACHE_BYTES        ((LED_FRAME_BYTES + 31U) & ~31U)
+static uint8_t g_demo_phase = 0U;               // 演示模式相位计数器（用于动画效果）
 
-static uint8_t g_tim3_frame_storage[LED_FRAME_CACHE_BYTES + 31U];
-static uint8_t g_tim8_frame_storage[LED_FRAME_CACHE_BYTES + 31U];
-static uint16_t *g_tim3_frame = (uint16_t *)0;
-static uint16_t *g_tim8_frame = (uint16_t *)0;
-static uint32_t g_led_grb[LED_CHAIN_COUNT][LEDS_PER_CHAIN];
-static volatile uint8_t g_frame_busy = 0U;
-static volatile uint8_t g_tim3_done = 0U;
-static volatile uint8_t g_tim8_done = 0U;
-static uint8_t g_demo_phase = 0U;
+// 外部声明的DMA句柄（在dma.c中定义）
 extern DMA_HandleTypeDef hdma_tim3_up;
 extern DMA_HandleTypeDef hdma_tim8_up;
 /* USER CODE END PV */
@@ -75,243 +60,68 @@ extern DMA_HandleTypeDef hdma_tim8_up;
 void SystemClock_Config(void);
 static void MPU_Config(void);
 /* USER CODE BEGIN PFP */
-static void LED_LoadDemoPattern(uint8_t phase);
-static void LED_InitFrameBuffers(void);
-static void LED_BuildFrame(void);
-static void LED_CleanFrameCache(void);
-static void LED_StartFrame(void);
-static void LED_StopFrame(void);
-static void LED_OnTim3DmaComplete(DMA_HandleTypeDef *hdma);
-static void LED_OnTim8DmaComplete(DMA_HandleTypeDef *hdma);
-static void LED_OnDmaError(DMA_HandleTypeDef *hdma);
+static void LED_LoadDemoPattern(uint8_t phase);         // 加载演示图案
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
+/**
+  * @brief  加载演示图案到LED矩阵
+  * @param  phase: 演示相位（0-15循环）
+  * @retval None
+  * 
+  * 此函数创建一个流动的光效，从外侧向内侧移动。
+  * 每个LED根据其位置和当前相位计算亮度值。
+  */
 static void LED_LoadDemoPattern(uint8_t phase)
 {
-  uint32_t chain;
-  uint32_t led;
-  uint8_t step;
+  uint32_t chain;   // 灯带索引
+  uint32_t led;     // LED索引
+  uint8_t step;     // 当前步进值
 
+  // 提取相位的低4位作为步进值（0-15循环）
   step = (uint8_t)(phase & 0x0FU);
+  
+  // 遍历每条灯带上的所有LED
   for (led = 0U; led < LEDS_PER_CHAIN; led++)
   {
-    uint8_t distance;
-    uint8_t delta;
-    uint8_t brightness;
-    uint32_t grb;
+    uint8_t distance;   // LED距离参考点的距离
+    uint8_t delta;      // 距离与步进的差值
+    uint8_t brightness; // 计算出的亮度值
 
     /* 按每条总线的灯序流动：led=0 视为最外侧，led=15 视为最内侧 */
     distance = (uint8_t)led;
+    // 计算当前位置与流动前沿的相对距离（模16运算）
     delta = (uint8_t)((distance + 16U - step) & 0x0FU);
 
+    // 根据相对距离设置不同的亮度级别
     if (delta == 0U)
     {
-      brightness = 255U;
+      brightness = 255U;  // 最亮（白色）
     }
     else if (delta == 1U)
     {
-      brightness = 96U;
+      brightness = 96U;   // 中等亮度
     }
     else if (delta == 2U)
     {
-      brightness = 32U;
+      brightness = 32U;   // 较暗
     }
     else
     {
-      brightness = 0U;
+      brightness = 0U;    // 关闭
     }
 
-    grb = ((uint32_t)brightness << 16U) |
-          ((uint32_t)brightness << 8U) |
-          (uint32_t)brightness;
-
+    // 将相同的颜色值应用到所有32条灯带的对应LED位置
     for (chain = 0U; chain < LED_CHAIN_COUNT; chain++)
     {
-      g_led_grb[chain][led] = grb;
+      LED_Matrix_SetPixel(chain, led, ((uint32_t)brightness << 16U) | 
+                                    ((uint32_t)brightness << 8U) | 
+                                    (uint32_t)brightness);
     }
   }
-}
-
-static void LED_InitFrameBuffers(void)
-{
-  uintptr_t tim3_base;
-  uintptr_t tim8_base;
-
-  tim3_base = (uintptr_t)g_tim3_frame_storage;
-  tim8_base = (uintptr_t)g_tim8_frame_storage;
-  tim3_base = (tim3_base + 31U) & ~(uintptr_t)31U;
-  tim8_base = (tim8_base + 31U) & ~(uintptr_t)31U;
-
-  g_tim3_frame = (uint16_t *)tim3_base;
-  g_tim8_frame = (uint16_t *)tim8_base;
-}
-
-static void LED_BuildFrame(void)
-{
-  uint32_t slotIndex = 0U;
-  uint32_t ledIndex;
-  uint32_t bitIndex;
-  uint32_t chainIndex;
-
-  for (ledIndex = 0U; ledIndex < LEDS_PER_CHAIN; ledIndex++)
-  {
-    for (bitIndex = 0U; bitIndex < LED_BITS_PER_PIXEL; bitIndex++)
-    {
-      uint16_t portD = 0xFFFFU;
-      uint16_t portE = 0xFFFFU;
-
-      g_tim3_frame[slotIndex] = portD;
-      g_tim8_frame[slotIndex] = portE;
-      slotIndex++;
-
-      portD = 0U;
-      portE = 0U;
-
-          for (chainIndex = 0U; chainIndex < LED_CHAIN_COUNT; chainIndex++)
-      {
-            uint32_t v = g_led_grb[chainIndex][ledIndex];
-            uint8_t g = (uint8_t)((v >> 16U) & 0xFFU);
-            uint8_t r = (uint8_t)((v >> 8U) & 0xFFU);
-            uint8_t b = (uint8_t)(v & 0xFFU);
-
-            /* 应用全局亮度缩放（右移 LED_BRIGHTNESS_SHIFT 位） */
-            g = (uint8_t)(g >> LED_BRIGHTNESS_SHIFT);
-            r = (uint8_t)(r >> LED_BRIGHTNESS_SHIFT);
-            b = (uint8_t)(b >> LED_BRIGHTNESS_SHIFT);
-
-            uint32_t scaled = ((uint32_t)g << 16U) | ((uint32_t)r << 8U) | (uint32_t)b;
-
-            if ((scaled & (1UL << (23U - bitIndex))) != 0UL)
-            {
-              if (chainIndex < 16U)
-              {
-                portD |= (uint16_t)(1U << chainIndex);
-              }
-              else
-              {
-                portE |= (uint16_t)(1U << (chainIndex - 16U));
-              }
-            }
-      }
-
-      g_tim3_frame[slotIndex] = portD;
-      g_tim8_frame[slotIndex] = portE;
-      slotIndex++;
-
-      g_tim3_frame[slotIndex] = 0U;
-      g_tim8_frame[slotIndex] = 0U;
-      slotIndex++;
-
-      g_tim3_frame[slotIndex] = 0U;
-      g_tim8_frame[slotIndex] = 0U;
-      slotIndex++;
-    }
-  }
-
-  while (slotIndex < LED_FRAME_SLOTS)
-  {
-    g_tim3_frame[slotIndex] = 0U;
-    g_tim8_frame[slotIndex] = 0U;
-    slotIndex++;
-  }
-}
-
-static void LED_CleanFrameCache(void)
-{
-}
-
-static void LED_StopFrame(void)
-{
-  (void)HAL_TIM_Base_Stop(&htim3);
-  (void)HAL_TIM_Base_Stop(&htim8);
-  __HAL_TIM_DISABLE_DMA(&htim3, TIM_DMA_UPDATE);
-  __HAL_TIM_DISABLE_DMA(&htim8, TIM_DMA_UPDATE);
-  GPIOD->ODR = 0U;
-  GPIOE->ODR = 0U;
-  g_frame_busy = 0U;
-}
-
-static void LED_StartFrame(void)
-{
-  static int a = 0 ;
-  a++ ;
-  if (g_frame_busy != 0U)
-  {
-    return;
-  }
-
-  if ((g_tim3_frame == (uint16_t *)0) || (g_tim8_frame == (uint16_t *)0))
-  {
-    LED_InitFrameBuffers();
-  }
-
-  g_frame_busy = 1U;
-  g_tim3_done = 0U;
-  g_tim8_done = 0U;
-
-  LED_LoadDemoPattern(g_demo_phase++);
-  LED_BuildFrame();
-  LED_CleanFrameCache();
-
-  __HAL_TIM_DISABLE_DMA(&htim3, TIM_DMA_UPDATE);
-  __HAL_TIM_DISABLE_DMA(&htim8, TIM_DMA_UPDATE);
-  __HAL_TIM_SET_COUNTER(&htim3, 0U);
-  __HAL_TIM_SET_COUNTER(&htim8, 0U);
-  __HAL_TIM_CLEAR_FLAG(&htim3, TIM_FLAG_UPDATE);
-  __HAL_TIM_CLEAR_FLAG(&htim8, TIM_FLAG_UPDATE);
-
-  if (HAL_DMA_Start_IT(&hdma_tim3_up, (uint32_t)g_tim3_frame, (uint32_t)&GPIOD->ODR, LED_FRAME_SLOTS) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  if (HAL_DMA_Start_IT(&hdma_tim8_up, (uint32_t)g_tim8_frame, (uint32_t)&GPIOE->ODR, LED_FRAME_SLOTS) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  __HAL_TIM_ENABLE_DMA(&htim3, TIM_DMA_UPDATE);
-  __HAL_TIM_ENABLE_DMA(&htim8, TIM_DMA_UPDATE);
-
-  if (HAL_TIM_Base_Start(&htim3) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  if (HAL_TIM_Base_Start(&htim8) != HAL_OK)
-  {
-    Error_Handler();
-  }
-}
-
-static void LED_OnTim3DmaComplete(DMA_HandleTypeDef *hdma)
-{
-  (void)hdma;
-  g_tim3_done = 1U;
-  if (g_tim8_done != 0U)
-  {
-    LED_StopFrame();
-  }
-}
-
-static void LED_OnTim8DmaComplete(DMA_HandleTypeDef *hdma)
-{
-  (void)hdma;
-  g_tim8_done = 1U;
-  if (g_tim3_done != 0U)
-  {
-    LED_StopFrame();
-  }
-}
-
-static void LED_OnDmaError(DMA_HandleTypeDef *hdma)
-{
-  (void)hdma;
-  Error_Handler();
 }
 
 /* USER CODE END 0 */
@@ -322,55 +132,74 @@ static void LED_OnDmaError(DMA_HandleTypeDef *hdma)
   */
 int main(void)
 {
+  // 程序入口点开始
 
   /* USER CODE BEGIN 1 */
-
+  // 用户代码区域1：在系统初始化之前可以添加的用户代码
   /* USER CODE END 1 */
 
   /* MPU Configuration--------------------------------------------------------*/
+  // 配置内存保护单元(MPU)，用于设置内存访问权限和属性
   MPU_Config();
 
   /* MCU Configuration--------------------------------------------------------*/
 
   /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
+  // 初始化HAL库，重置所有外设，初始化Flash接口和系统滴答定时器
   HAL_Init();
 
   /* USER CODE BEGIN Init */
-
+  // 用户初始化代码区域：在系统时钟配置之前可以添加的用户代码
   /* USER CODE END Init */
 
   /* Configure the system clock */
+  // 配置系统时钟，设置CPU、AHB、APB总线的时钟频率
   SystemClock_Config();
 
   /* USER CODE BEGIN SysInit */
-
+  // 用户系统初始化代码区域：在外设初始化之前可以添加的用户代码
   /* USER CODE END SysInit */
 
   /* Initialize all configured peripherals */
-  MX_GPIO_Init();
-  MX_DMA_Init();
-  MX_TIM3_Init();
-  MX_TIM2_Init();
-  MX_TIM8_Init();
-  MX_SPI1_Init();
+  // 初始化所有已配置的外设
+  MX_GPIO_Init();    // 初始化GPIO引脚配置
+  MX_DMA_Init();     // 初始化DMA控制器配置
+  MX_TIM3_Init();    // 初始化定时器3配置（用于LED矩阵数据传输）
+  MX_TIM2_Init();    // 初始化定时器2配置（用于帧刷新定时）
+  MX_TIM8_Init();    // 初始化定时器8配置（用于LED矩阵数据传输）
+  MX_SPI1_Init();    // 初始化SPI1接口配置
   /* USER CODE BEGIN 2 */
-  hdma_tim3_up.XferCpltCallback = LED_OnTim3DmaComplete;
-  hdma_tim3_up.XferErrorCallback = LED_OnDmaError;
-  hdma_tim8_up.XferCpltCallback = LED_OnTim8DmaComplete;
-  hdma_tim8_up.XferErrorCallback = LED_OnDmaError;
+  // 配置定时器3的DMA传输完成回调函数
+  hdma_tim3_up.XferCpltCallback = LED_Matrix_OnTim3DmaComplete;
+  // 配置定时器3的DMA传输错误回调函数
+  hdma_tim3_up.XferErrorCallback = LED_Matrix_OnDmaError;
+  // 配置定时器8的DMA传输完成回调函数
+  hdma_tim8_up.XferCpltCallback = LED_Matrix_OnTim8DmaComplete;
+  // 配置定时器8的DMA传输错误回调函数
+  hdma_tim8_up.XferErrorCallback = LED_Matrix_OnDmaError;
+  
+  // 初始化LED矩阵驱动
+  LED_Matrix_Init();
+
+  // 启动定时器2的中断模式，用于定期触发LED帧刷新
   if (HAL_TIM_Base_Start_IT(&htim2) != HAL_OK)
   {
+    // 如果启动失败，调用错误处理函数
     Error_Handler();
   }
 
-  LED_StartFrame();
+  // 启动第一帧LED显示
+  LED_LoadDemoPattern(g_demo_phase++);
+  LED_Matrix_StartFrame();
 
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+  // 主程序无限循环
   while (1)
   {
+    // 进入等待中断模式，降低功耗，等待定时器中断唤醒
     __WFI();
     /* USER CODE END WHILE */
 
@@ -440,11 +269,21 @@ void SystemClock_Config(void)
 
 /* USER CODE BEGIN 4 */
 
+/**
+  * @brief  HAL定时器周期结束回调函数
+  * @param  htim: 定时器句柄指针
+  * @retval None
+  * 
+  * 此函数在定时器中断中被调用。当TIM2计数溢出时，
+  * 触发新的LED帧刷新，实现持续的动画效果。
+  */
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
   if (htim->Instance == TIM2)
   {
-    LED_StartFrame();
+    // TIM2用于帧刷新定时，每到周期就启动新帧
+    LED_LoadDemoPattern(g_demo_phase++);
+    LED_Matrix_StartFrame();
   }
 }
 
@@ -487,7 +326,9 @@ void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
   /* User can add his own implementation to report the HAL error return state */
+  // 禁用所有中断
   __disable_irq();
+  // 进入死循环（错误状态）
   while (1)
   {
   }
