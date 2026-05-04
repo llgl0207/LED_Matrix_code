@@ -390,6 +390,11 @@
           <GroupName>Application/User/Core</GroupName>
           <Files>
             <File>
+              <FileName>led_matrix.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../Core/Src/led_matrix.c</FilePath>
+            </File>
+            <File>
               <FileName>main.c</FileName>
               <FileType>1</FileType>
               <FilePath>../Core/Src/main.c</FilePath>
@@ -478,11 +483,6 @@
               <FileName>stm32h7xx_hal_msp.c</FileName>
               <FileType>1</FileType>
               <FilePath>../Core/Src/stm32h7xx_hal_msp.c</FilePath>
-            </File>
-            <File>
-              <FileName>led_matrix.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../Core/Src/led_matrix.c</FilePath>
             </File>
           </Files>
         </Group>
@@ -730,3 +730,4 @@
     <files />
   </RTE>
 </Project>
+

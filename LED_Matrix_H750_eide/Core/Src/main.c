@@ -27,6 +27,8 @@
 /* USER CODE BEGIN Includes */
 #include "tim.h"
 #include "led_matrix.h"
+  extern DMA_HandleTypeDef hdma_tim3_up;
+  extern DMA_HandleTypeDef hdma_tim8_up;
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -45,8 +47,24 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+
 /* USER CODE BEGIN PV */
-uint8_t currentFrame = 0;  // 当前显示的帧索引 (0-119)
+uint8_t currentFrame = 0;       // 当前显示的帧索引 (0-119)
+uint8_t refreshFlag = 0;        // 刷新标志，中断触发时设置为1
+uint8_t isRefreshing = 0;       // 正在刷新中标志
+uint32_t lastIrqTime = 0;       // 上次中断触发时间戳（用于20ms屏蔽）
+#define DEBOUNCE_TIME 20         // 触发后屏蔽时间（毫秒）
+uint8_t animationFrame = 0;     // 动画帧计数器，用于逐帧显示
+uint32_t lastTriggerTime = 0;   // 上次有效中断触发时间（用于计算间隔）
+uint32_t irqInterval = 1000;    // 两次中断的时间间隔（毫秒），初始1秒
+#define TIM2_CLOCK 1000000       // TIM2经过PSC后的时钟频率（1MHz）
+#define FRAME_COUNT 120          // 动画总帧数
+
+// 用于计算平均值的历史数据
+#define SAMPLE_COUNT 50          // 取前50次的平均值
+uint32_t intervalHistory[50]; // 存储最近50次中断间隔
+uint8_t historyIndex = 0;        // 当前存储位置索引
+uint8_t sampleCount = 0;         // 当前已有样本数量
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -66,6 +84,7 @@ static void MPU_Config(void);
   */
 int main(void)
 {
+
   /* USER CODE BEGIN 1 */
   /* USER CODE END 1 */
 
@@ -95,8 +114,8 @@ int main(void)
   MX_TIM2_Init();
   MX_TIM8_Init();
   MX_SPI1_Init();
-
   /* USER CODE BEGIN 2 */
+
   uint16_t g_led_frame[20]={0x0000,0xFFFF,0x0000,0xFFFF,0x0000,0xFFFF,0x0000,0xFFFF,0x0000,0xFFFF,0x0000,0xFFFF,0x0000,0xFFFF,0x0000,0xFFFF,0x0000,0xFFFF,0x0000};
 
   // 配置DMA回调函数（可选，但建议）
@@ -106,6 +125,7 @@ int main(void)
   // 启动定时器（必须）
   HAL_TIM_Base_Start(&htim3);
   HAL_TIM_Base_Start(&htim8);
+  HAL_TIM_Base_Start_IT(&htim2);
   
   // 使能定时器DMA请求（必须）
   __HAL_TIM_ENABLE_DMA(&htim3, TIM_DMA_UPDATE);
@@ -128,7 +148,7 @@ int main(void)
   
   // 初始化120个柱面的流水灯效果
   // 顺序：displayMem[0].A -> displayMem[0].B -> displayMem[1].A -> displayMem[1].B...
-  for (int frameIdx = 0; frameIdx < CYLINDER_NUM; frameIdx++) {
+  for (int frameIdx = 0; frameIdx < 64; frameIdx++) {
     // 计算当前frame对应的displayMem索引和buffer类型(A/B)
     int memIdx = frameIdx / 2;
     uint8_t isBufferA = (frameIdx % 2 == 0);
@@ -163,24 +183,9 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    // 计算当前frame对应的displayMem索引和buffer类型(A/B)
-    int memIdx = currentFrame / 2;
-    uint8_t isBufferA = (currentFrame % 2 == 0);
-    
-    // 启动DMA传输显示当前帧
-    if (isBufferA) {
-      HAL_DMA_Start_IT(&hdma_tim3_up, (uint32_t)displayMem[memIdx].ledBufferA, (uint32_t)&GPIOD->ODR, ONE_BUS_LED_NUM*24*4);
-      //HAL_DMA_Start_IT(&hdma_tim8_up, (uint32_t)displayMem[memIdx].ledBufferB, (uint32_t)&GPIOE->ODR, ONE_BUS_LED_NUM*24*4);
-    } else {
-      HAL_DMA_Start_IT(&hdma_tim3_up, (uint32_t)displayMem[memIdx].ledBufferB, (uint32_t)&GPIOE->ODR, ONE_BUS_LED_NUM*24*4);
-      //HAL_DMA_Start_IT(&hdma_tim8_up, (uint32_t)displayMem[memIdx].ledBufferA, (uint32_t)&GPIOE->ODR, ONE_BUS_LED_NUM*24*4);
-    }
-    //HAL_DMA_Start_IT(&hdma_tim3_up, (uint32_t)displayMem[0].ledBufferA, (uint32_t)&GPIOE->ODR, ONE_BUS_LED_NUM*24*4);
-    // 延迟一段时间
-    HAL_Delay(50);
-    
-    // 更新当前帧索引（循环120个柱面）
-    currentFrame = (currentFrame + 1) % CYLINDER_NUM;
+
+    // 待机状态：可以添加低功耗处理或其他任务
+    HAL_Delay(10);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -249,11 +254,96 @@ void SystemClock_Config(void)
 
 /* USER CODE BEGIN 4 */
 
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+  if (GPIO_Pin == IR_IT_Pin)
+  {
+    // 获取当前时间戳
+    uint32_t currentTime = HAL_GetTick();
+    
+    // 检查是否在20ms屏蔽期内（上次触发后20ms内忽略新触发）
+    // 如果是第一次触发（lastIrqTime为0），则立即处理
+    if (lastIrqTime == 0 || (currentTime - lastIrqTime) >= DEBOUNCE_TIME)
+    {
+      // 更新上次触发时间（用于20ms屏蔽期）
+      lastIrqTime = currentTime;
+      
+      // 计算与上一次有效触发的时间间隔
+      if (lastTriggerTime != 0)
+      {
+        uint32_t currentInterval = currentTime - lastTriggerTime;
+        
+        // 将当前间隔存入历史数组（环形缓冲区）
+        intervalHistory[historyIndex] = currentInterval;
+        historyIndex = (historyIndex + 1) % SAMPLE_COUNT;
+        
+        // 更新样本数量（最多SAMPLE_COUNT个）
+        if (sampleCount < SAMPLE_COUNT)
+        {
+          sampleCount++;
+        }
+        
+        // 计算前N次的平均值
+        uint32_t sum = 0;
+        for (uint8_t i = 0; i < sampleCount; i++)
+        {
+          sum += intervalHistory[i];
+        }
+        irqInterval = sum / sampleCount;
+      }
+      
+      // 更新上一次有效触发时间
+      lastTriggerTime = currentTime;
+      
+      // 计算新的TIM2 ARR值，使动画在平均间隔时间内完成
+      // ARR = (平均间隔时间(ms) * 1000) / FRAME_COUNT - 1
+      // 确保ARR至少为1（避免除零或负数）
+      uint32_t newArr = (irqInterval * 1000) / FRAME_COUNT;
+      if (newArr < 1) newArr = 1;
+      newArr -= 1; // TIM计数器从0开始，所以减1
+      
+      // 更新TIM2的ARR值
+      __HAL_TIM_SET_AUTORELOAD(&htim2, 500);
+      
+      // 重置动画状态，立即重新开始渲染
+      animationFrame = 0;
+      isRefreshing = 1;
+    }
+  }
+}
+
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
   if (htim->Instance == TIM2)
   {
-
+    // 检查是否正在刷新动画
+    if (isRefreshing)
+    {
+      // 每次中断只显示一帧，避免长时间占用中断
+      int memIdx = animationFrame / 2;
+      uint8_t isBufferA = (animationFrame % 2 == 0);
+      
+      // 启动DMA传输显示当前帧
+      // 偶数帧：刷新bufferA到GPIOD
+      // 奇数帧：刷新bufferB到GPIOE
+      if (isBufferA) {
+        HAL_DMA_Start_IT(&hdma_tim3_up, (uint32_t)displayMem[memIdx].ledBufferA, (uint32_t)&GPIOD->ODR, ONE_BUS_LED_NUM*24*4);
+      } else {
+        HAL_DMA_Start_IT(&hdma_tim8_up, (uint32_t)displayMem[memIdx].ledBufferB, (uint32_t)&GPIOE->ODR, ONE_BUS_LED_NUM*24*4);
+      }
+      
+      // 更新动画帧计数器
+      animationFrame++;
+      
+      // 检查是否播放完毕
+      if (animationFrame >= CYLINDER_NUM)
+      {
+        // 刷新完成
+        isRefreshing = 0;
+        animationFrame = 0;
+        currentFrame = 0;
+      }
+    }
   }
 }
 
@@ -265,8 +355,11 @@ void MPU_Config(void)
 {
   MPU_Region_InitTypeDef MPU_InitStruct = {0};
 
+  /* Disables the MPU */
   HAL_MPU_Disable();
 
+  /** Initializes and configures the Region and the memory to be protected
+  */
   MPU_InitStruct.Enable = MPU_REGION_ENABLE;
   MPU_InitStruct.Number = MPU_REGION_NUMBER0;
   MPU_InitStruct.BaseAddress = 0x0;
@@ -280,7 +373,9 @@ void MPU_Config(void)
   MPU_InitStruct.IsBufferable = MPU_ACCESS_NOT_BUFFERABLE;
 
   HAL_MPU_ConfigRegion(&MPU_InitStruct);
+  /* Enables the MPU */
   HAL_MPU_Enable(MPU_PRIVILEGED_DEFAULT);
+
 }
 
 /**
@@ -296,8 +391,14 @@ void Error_Handler(void)
   }
   /* USER CODE END Error_Handler_Debug */
 }
-
 #ifdef USE_FULL_ASSERT
+/**
+  * @brief  Reports the name of the source file and the source line number
+  *         where the assert_param error has occurred.
+  * @param  file: pointer to the source file name
+  * @param  line: assert_param error line source number
+  * @retval None
+  */
 void assert_failed(uint8_t *file, uint32_t line)
 {
   /* USER CODE BEGIN 6 */
