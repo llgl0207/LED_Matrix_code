@@ -14,7 +14,7 @@
  * 存储所有LED灯的颜色数据，每个圆柱体占用两个缓冲区(A和B)用于双缓冲显示。
  * 数据格式：displayMem[圆柱体序号].ledBufferA/B[LED序号][数据位]
  */
-ledFrame displayMem[CYLINDER_NUM/2];
+ledFrame displayMem[CYLINDER_NUM];
 
 #if RGB_PROTOCOL == 0
 /**
@@ -123,12 +123,19 @@ void ledBufferClear(uint16_t buffer[ONE_BUS_LED_NUM][24*4]){
 /**
  * @brief 初始化所有LED显示缓冲区
  * 
- * 对所有圆柱体的A、B两个缓冲区进行初始化清空操作，确保系统启动时
+ * 对所有圆柱体的缓冲区进行初始化清空操作，确保系统启动时
  * 所有LED处于已知的关闭状态。
  */
 void ledBufferInit(void){
-    for(int i = 0; i < CYLINDER_NUM/2; i++){
-        ledBufferClear(displayMem[i].ledBufferA); // 初始化缓冲区A
-        ledBufferClear(displayMem[i].ledBufferB); // 初始化缓冲区B
+    for(int i = 0; i < CYLINDER_NUM; i++){
+        ledBufferClear(displayMem[i].ledBuffer); // 初始化缓冲区
+    }
+}
+
+void ledPushGPIO(GPIO_TypeDef * GPIOx, ledFrame * frame){
+    if(GPIOx == GPIOD){
+        HAL_DMA_Start_IT(&hdma_tim3_up, (uint32_t)frame->ledBuffer, (uint32_t)&GPIOD->ODR, ONE_BUS_LED_NUM*24*4);
+    }else if(GPIOx == GPIOE){
+        HAL_DMA_Start_IT(&hdma_tim8_up, (uint32_t)frame->ledBuffer, (uint32_t)&GPIOE->ODR, ONE_BUS_LED_NUM*24*4);
     }
 }

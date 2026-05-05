@@ -147,12 +147,8 @@ int main(void)
   };
   
   // 初始化120个柱面的流水灯效果
-  // 顺序：displayMem[0].A -> displayMem[0].B -> displayMem[1].A -> displayMem[1].B...
-  for (int frameIdx = 0; frameIdx < 64; frameIdx++) {
-    // 计算当前frame对应的displayMem索引和buffer类型(A/B)
-    int memIdx = frameIdx / 2;
-    uint8_t isBufferA = (frameIdx % 2 == 0);
-    
+  // 每个柱面对应一个buffer，GPIOE与GPIOD差180度相位（60个柱面）
+  for (int frameIdx = 0; frameIdx < CYLINDER_NUM; frameIdx++) {
     // 计算当前frame对应的LED位置(0-15)和颜色索引
     int ledPos = frameIdx % ONE_BUS_LED_NUM;
     int colorIdx = frameIdx / ONE_BUS_LED_NUM;
@@ -161,18 +157,11 @@ int main(void)
     uint32_t color = colors[colorIdx % 8];
     
     // 清除当前buffer
-    if (isBufferA) {
-      ledBufferClear(displayMem[memIdx].ledBufferA);
-      // 在当前LED位置设置颜色
-      for (int io = 0; io < 16; io++) {
-        ledSetColorOne(displayMem[memIdx].ledBufferA, ledPos, io, color);
-      }
-    } else {
-      ledBufferClear(displayMem[memIdx].ledBufferB);
-      // 在当前LED位置设置颜色
-      for (int io = 0; io < 16; io++) {
-        ledSetColorOne(displayMem[memIdx].ledBufferB, ledPos, io, color);
-      }
+    ledBufferClear(displayMem[frameIdx].ledBuffer);
+    
+    // 在当前LED位置设置颜色
+    for (int io = 0; io < 16; io++) {
+      ledSetColorOne(displayMem[frameIdx].ledBuffer, ledPos, io, color);
     }
   }
   //ledBufferClear(displayMem[0].ledBufferA); // 初始状态全灭
@@ -303,7 +292,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
       newArr -= 1; // TIM计数器从0开始，所以减1
       
       // 更新TIM2的ARR值
-      __HAL_TIM_SET_AUTORELOAD(&htim2, 500);
+      __HAL_TIM_SET_AUTORELOAD(&htim2, newArr);
       
       // 重置动画状态，立即重新开始渲染
       animationFrame = 0;
@@ -319,19 +308,11 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
     // 检查是否正在刷新动画
     if (isRefreshing)
     {
-      // 每次中断只显示一帧，避免长时间占用中断
-      int memIdx = animationFrame / 2;
-      uint8_t isBufferA = (animationFrame % 2 == 0);
-      
-      // 启动DMA传输显示当前帧
-      // 偶数帧：刷新bufferA到GPIOD
-      // 奇数帧：刷新bufferB到GPIOE
-      if (isBufferA) {
-        HAL_DMA_Start_IT(&hdma_tim3_up, (uint32_t)displayMem[memIdx].ledBufferA, (uint32_t)&GPIOD->ODR, ONE_BUS_LED_NUM*24*4);
-      } else {
-        HAL_DMA_Start_IT(&hdma_tim8_up, (uint32_t)displayMem[memIdx].ledBufferB, (uint32_t)&GPIOE->ODR, ONE_BUS_LED_NUM*24*4);
-      }
-      
+      // GPIOD输出当前帧
+      ledPushGPIO(GPIOD, &displayMem[animationFrame]);
+      // GPIOE输出相差180度相位的帧（即当前帧+60，取模120）
+      int phaseFrame = (animationFrame + CYLINDER_NUM / 2) % CYLINDER_NUM;
+      ledPushGPIO(GPIOE, &displayMem[phaseFrame]);
       // 更新动画帧计数器
       animationFrame++;
       
