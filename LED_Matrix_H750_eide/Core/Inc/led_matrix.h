@@ -7,7 +7,7 @@
   extern DMA_HandleTypeDef hdma_tim3_up;
   extern DMA_HandleTypeDef hdma_tim8_up;
 #define ONE_BUS_LED_NUM 16
-#define DMA_BUFFER_CYLINDER_NUM 16//直接用于DMA输出的缓冲区，因为协议要求占据原始缓冲区的四倍大小
+#define DMA_BUFFER_CYLINDER_NUM 32//直接用于DMA输出的缓冲区，因为协议要求占据原始缓冲区的四倍大小
 #define RAW_BUFFER_CYLINDER_NUM 64//存储原始帧数据
 #define RGB_PROTOCOL 1
 //0: RGB协议，1: GRB协议
