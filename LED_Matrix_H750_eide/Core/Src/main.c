@@ -148,7 +148,7 @@ int main(void)
   
   // 初始化120个柱面的流水灯效果
   // 每个柱面对应一个buffer，GPIOE与GPIOD差180度相位（60个柱面）
-  for (int frameIdx = 0; frameIdx < CYLINDER_NUM; frameIdx++) {
+  for (int frameIdx = 0; frameIdx < DMA_BUFFER_CYLINDER_NUM; frameIdx++) {
     // 计算当前frame对应的LED位置(0-15)和颜色索引
     int ledPos = frameIdx % ONE_BUS_LED_NUM;
     int colorIdx = frameIdx / ONE_BUS_LED_NUM;
@@ -157,15 +157,15 @@ int main(void)
     uint32_t color = colors[colorIdx % 8];
     
     // 清除当前buffer
-    ledBufferClear(displayMem[frameIdx].ledBuffer);
+    ledBufferClearDma(FrameDma[frameIdx].ledBufferDma);
     
     // 在当前LED位置设置颜色
     for (int io = 0; io < 16; io++) {
-      ledSetColorOne(displayMem[frameIdx].ledBuffer, ledPos, io, color);
+      ledSetColorOneDma(FrameDma[frameIdx].ledBufferDma, ledPos, io, color);
     }
   }
-  //ledBufferClear(displayMem[0].ledBufferA); // 初始状态全灭
-  //ledSetColorOne(displayMem[0].ledBufferA, 1, 11, 0xFF0000); // 第一个LED红色
+  //ledBufferClearDma(FrameDma[0].ledBufferDma); // 初始状态全灭
+  //ledSetColorOneDma(FrameDma[0].ledBufferDma, 1, 11, 0xFF0000); // 第一个LED红色
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -309,15 +309,15 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
     if (isRefreshing)
     {
       // GPIOD输出当前帧
-      ledPushGPIO(GPIOD, &displayMem[animationFrame]);
+      ledPushGPIO(GPIOD, &FrameDma[animationFrame]);
       // GPIOE输出相差180度相位的帧（即当前帧+60，取模120）
-      int phaseFrame = (animationFrame + CYLINDER_NUM / 2) % CYLINDER_NUM;
-      ledPushGPIO(GPIOE, &displayMem[phaseFrame]);
+      int phaseFrame = (animationFrame + DMA_BUFFER_CYLINDER_NUM / 2) % DMA_BUFFER_CYLINDER_NUM;
+      ledPushGPIO(GPIOE, &FrameDma[phaseFrame]);
       // 更新动画帧计数器
       animationFrame++;
       
       // 检查是否播放完毕
-      if (animationFrame >= CYLINDER_NUM)
+      if (animationFrame >= DMA_BUFFER_CYLINDER_NUM)
       {
         // 刷新完成
         isRefreshing = 0;
