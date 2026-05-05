@@ -58,13 +58,15 @@ uint8_t animationFrame = 0;     // 动画帧计数器，用于逐帧显示
 uint32_t lastTriggerTime = 0;   // 上次有效中断触发时间（用于计算间隔）
 uint32_t irqInterval = 1000;    // 两次中断的时间间隔（毫秒），初始1秒
 #define TIM2_CLOCK 1000000       // TIM2经过PSC后的时钟频率（1MHz）
-#define FRAME_COUNT 120          // 动画总帧数
+#define FRAME_COUNT (RAW_BUFFER_CYLINDER_NUM * 2)  // 动画总帧数（64帧完成一圈）
 
 // 用于计算平均值的历史数据
 #define SAMPLE_COUNT 50          // 取前50次的平均值
 uint32_t intervalHistory[50]; // 存储最近50次中断间隔
 uint8_t historyIndex = 0;        // 当前存储位置索引
 uint8_t sampleCount = 0;         // 当前已有样本数量
+
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -146,9 +148,9 @@ int main(void)
     0xFF88FF   // 粉色
   };
   
-  // 初始化120个柱面的流水灯效果
-  // 每个柱面对应一个buffer，GPIOE与GPIOD差180度相位（60个柱面）
-  for (int frameIdx = 0; frameIdx < DMA_BUFFER_CYLINDER_NUM; frameIdx++) {
+  // 初始化所有Raw帧（支持任意数量）
+  // 每个柱面对应一个buffer，GPIOD与GPIOE的两个半柱面存储在同一个FrameRaw中
+  for (int frameIdx = 0; frameIdx < RAW_BUFFER_CYLINDER_NUM; frameIdx++) {
     // 计算当前frame对应的LED位置(0-15)和颜色索引
     int ledPos = frameIdx % ONE_BUS_LED_NUM;
     int colorIdx = frameIdx / ONE_BUS_LED_NUM;
@@ -156,22 +158,61 @@ int main(void)
     // 获取当前颜色
     uint32_t color = colors[colorIdx % 8];
     
-    // 清除当前buffer
-    ledBufferClearDma(FrameDma[frameIdx].ledBufferDma);
+    // 清除当前Raw缓冲区
+    ledBufferClearRaw(FrameRaw[frameIdx].ledBufferRawA);
+    ledBufferClearRaw(FrameRaw[frameIdx].ledBufferRawB);
     
-    // 在当前LED位置设置颜色
+    // 在当前LED位置设置颜色到两个半柱面（A和B）
     for (int io = 0; io < 16; io++) {
-      ledSetColorOneDma(FrameDma[frameIdx].ledBufferDma, ledPos, io, color);
+      ledSetColorOneRaw(FrameRaw[frameIdx].ledBufferRawA, ledPos, io, color);
+      // 第二个半柱面可以设置不同的颜色或相同的颜色
+      uint32_t colorB = colors[(colorIdx + 4) % 8]; // 偏移4种颜色形成对比
+      ledSetColorOneRaw(FrameRaw[frameIdx].ledBufferRawB, ledPos, io, colorB);
     }
   }
-  //ledBufferClearDma(FrameDma[0].ledBufferDma); // 初始状态全灭
-  //ledSetColorOneDma(FrameDma[0].ledBufferDma, 1, 11, 0xFF0000); // 第一个LED红色
+  
+  // 预加载初始DMA数据（只加载前32帧）
+  // FrameDmaA存储FrameRaw[0-15]，FrameDmaB存储FrameRaw[16-31]
+  for (int i = 0; i < DMA_BUFFER_CYLINDER_NUM; i++) {
+    // FrameDmaA[i] 对应 FrameRaw[i]
+    ledBufferClearDma(FrameDmaA[i].ledBufferDmaA);
+    ledBufferClearDma(FrameDmaA[i].ledBufferDmaB);
+    ledBufferRawToDma(&FrameDmaA[i], &FrameRaw[i]);
+    
+    // FrameDmaB[i] 对应 FrameRaw[i + DMA_BUFFER_CYLINDER_NUM]
+    ledBufferClearDma(FrameDmaB[i].ledBufferDmaA);
+    ledBufferClearDma(FrameDmaB[i].ledBufferDmaB);
+    ledBufferRawToDma(&FrameDmaB[i], &FrameRaw[i + DMA_BUFFER_CYLINDER_NUM]);
+  }
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+    // 后台任务：动态加载Raw帧到DMA缓冲区
+    if (isRefreshing) {
+      // 计算需要预加载的帧索引（领先当前显示帧2*DMA_BUFFER_CYLINDER_NUM）
+      int preloadFrame = (animationFrame + 2 * DMA_BUFFER_CYLINDER_NUM) % (RAW_BUFFER_CYLINDER_NUM * 2);
+      // 转换为Raw帧索引（0-RAW_BUFFER_CYLINDER_NUM-1）
+      int rawFrameIdx = preloadFrame % RAW_BUFFER_CYLINDER_NUM;
+      // 计算目标DMA缓冲区索引
+      int dmaIdx = rawFrameIdx % DMA_BUFFER_CYLINDER_NUM;
+      
+      // 确定目标缓冲区（与当前使用的缓冲区相反）
+      memFrameDma *targetDma;
+      if (rawFrameIdx < DMA_BUFFER_CYLINDER_NUM) {
+        targetDma = &FrameDmaA[dmaIdx];
+      } else {
+        targetDma = &FrameDmaB[dmaIdx];
+      }
+      
+      // 从Raw缓冲区转换到DMA缓冲区
+      ledBufferClearDma(targetDma->ledBufferDmaA);
+      ledBufferClearDma(targetDma->ledBufferDmaB);
+      ledBufferRawToDma(targetDma, &FrameRaw[rawFrameIdx]);
+    }
 
     // 待机状态：可以添加低功耗处理或其他任务
     HAL_Delay(10);
@@ -270,6 +311,14 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
         if (sampleCount < SAMPLE_COUNT)
         {
           sampleCount++;
+        } else
+        {
+          // 如果是第一次触发，则将当前间隔存入历史数组
+          intervalHistory[historyIndex] = currentInterval;
+          historyIndex = (historyIndex + 1) % SAMPLE_COUNT;
+          
+          // 初始化样本数量为1
+          sampleCount = 1;
         }
         
         // 计算前N次的平均值
@@ -308,21 +357,35 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
     // 检查是否正在刷新动画
     if (isRefreshing)
     {
-      // GPIOD输出当前帧
-      ledPushGPIO(GPIOD, &FrameDma[animationFrame]);
-      // GPIOE输出相差180度相位的帧（即当前帧+60，取模120）
-      int phaseFrame = (animationFrame + DMA_BUFFER_CYLINDER_NUM / 2) % DMA_BUFFER_CYLINDER_NUM;
-      ledPushGPIO(GPIOE, &FrameDma[phaseFrame]);
+      // 计算当前阶段（0=前半圈AB模式, 1=后半圈BA模式）
+      uint8_t phase = (animationFrame < RAW_BUFFER_CYLINDER_NUM) ? 0 : 1;
+      // 计算当前帧在阶段内的索引（0-RAW_BUFFER_CYLINDER_NUM-1循环）
+      int frameIdx = animationFrame % RAW_BUFFER_CYLINDER_NUM;
+      
+      // 根据帧索引选择缓冲区（使用取模实现循环）
+      memFrameDma *currentFrame;
+      int dmaIdx = frameIdx % DMA_BUFFER_CYLINDER_NUM;
+      if (frameIdx < DMA_BUFFER_CYLINDER_NUM) {
+        // 使用FrameDmaA
+        currentFrame = &FrameDmaA[dmaIdx];
+      } else {
+        // 使用FrameDmaB
+        currentFrame = &FrameDmaB[dmaIdx];
+      }
+      
+      // 输出模式：前半圈AB模式，后半圈BA模式
+      uint8_t outputMode = phase;
+      ledPushGPIO(currentFrame, outputMode);
+      
       // 更新动画帧计数器
       animationFrame++;
       
-      // 检查是否播放完毕
-      if (animationFrame >= DMA_BUFFER_CYLINDER_NUM)
+      // 检查是否播放完毕（2*RAW_BUFFER_CYLINDER_NUM帧完成一圈）
+      if (animationFrame >= RAW_BUFFER_CYLINDER_NUM * 2)
       {
         // 刷新完成
         isRefreshing = 0;
         animationFrame = 0;
-        currentFrame = 0;
       }
     }
   }

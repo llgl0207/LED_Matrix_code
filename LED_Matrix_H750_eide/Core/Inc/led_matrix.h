@@ -7,8 +7,8 @@
   extern DMA_HandleTypeDef hdma_tim3_up;
   extern DMA_HandleTypeDef hdma_tim8_up;
 #define ONE_BUS_LED_NUM 16
-#define DMA_BUFFER_CYLINDER_NUM 15//直接用于DMA输出的缓冲区，因为协议要求占据原始缓冲区的四倍大小
-#define RAW_BUFFER_CYLINDER_NUM 120//存储原始帧数据
+#define DMA_BUFFER_CYLINDER_NUM 16//直接用于DMA输出的缓冲区，因为协议要求占据原始缓冲区的四倍大小
+#define RAW_BUFFER_CYLINDER_NUM 64//存储原始帧数据
 #define RGB_PROTOCOL 1
 //0: RGB协议，1: GRB协议
 #define BRIGHT_SHIFT 4 // 亮度调整位数，0~7，数值越大亮度越暗
@@ -31,6 +31,6 @@ void ledSetColorOneDma(uint16_t bufferDma[ONE_BUS_LED_NUM][24*4], uint8_t ledSeq
 void ledBufferClearDma(uint16_t bufferDma[ONE_BUS_LED_NUM][24*4]);
 void ledBufferRawToDma(memFrameDma * frameDma, memFrameRaw * frameRaw);
 void ledBufferInit(void);
-void ledPushGPIO(GPIO_TypeDef * GPIOx, memFrameDma * frame);
+void ledPushGPIO(memFrameDma * frame, uint8_t mode);
 void ledPushGPIOVolume(memFrameDma * frame);
 #endif
