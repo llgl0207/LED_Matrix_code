@@ -15,8 +15,26 @@
  * 数据格式：displayMem[圆柱体序号].ledBufferA/B[LED序号][数据位]
  */
 memFrameRaw FrameRaw[RAW_BUFFER_CYLINDER_NUM];
-memFrameDma FrameDmaA[DMA_BUFFER_CYLINDER_NUM];
+__attribute__((section(".dma_d2"))) memFrameDma FrameDmaA[DMA_BUFFER_CYLINDER_NUM];
 memFrameDma FrameDmaB[DMA_BUFFER_CYLINDER_NUM];
+
+static inline void ledWriteDmaBits(uint16_t bufferDma[ONE_BUS_LED_NUM][24*4], int ledSeq, int ioSeq, uint32_t color){
+    for(int bit = 0; bit < 24; bit++){
+        uint8_t bitVal = (color >> (23 - bit)) & 1;
+        int base = bit * 4;
+        if(bitVal == 0){
+            bufferDma[ledSeq][base] = (bufferDma[ledSeq][base] & ~(1 << ioSeq)) | (1 << ioSeq);
+            bufferDma[ledSeq][base+1] = (bufferDma[ledSeq][base+1] & ~(1 << ioSeq));
+            bufferDma[ledSeq][base+2] = (bufferDma[ledSeq][base+2] & ~(1 << ioSeq));
+            bufferDma[ledSeq][base+3] = (bufferDma[ledSeq][base+3] & ~(1 << ioSeq));
+        } else {
+            bufferDma[ledSeq][base] = (bufferDma[ledSeq][base] & ~(1 << ioSeq)) | (1 << ioSeq);
+            bufferDma[ledSeq][base+1] = (bufferDma[ledSeq][base+1] & ~(1 << ioSeq)) | (1 << ioSeq);
+            bufferDma[ledSeq][base+2] = (bufferDma[ledSeq][base+2] & ~(1 << ioSeq)) | (1 << ioSeq);
+            bufferDma[ledSeq][base+3] = (bufferDma[ledSeq][base+3] & ~(1 << ioSeq));
+        }
+    }
+}
 
 #if RGB_PROTOCOL == 0
 /**
@@ -24,28 +42,47 @@ memFrameDma FrameDmaB[DMA_BUFFER_CYLINDER_NUM];
  * 
  * 将指定颜色以RGB顺序编码后写入LED原始缓冲区。
  * 亮度通过BRIGHT_SHIFT控制，牺牲颜色解析度实现亮度调节。
+ * 支持RGB888和RGB444两种颜色深度。
  * 
- * @param bufferRaw LED原始缓冲区指针，二维数组[LED序号][数据位]，每个颜色占用24位
+ * @param bufferRaw LED原始缓冲区指针，二维数组[LED序号][数据位]
  * @param ledSeq LED在总线上的序号，范围0~ONE_BUS_LED_NUM-1
  * @param ioSeq 数据输出的GPIO引脚序号，对应ODR寄存器的某一位(0~15)
  * @param color RGB颜色值，格式为0xRRGGBB
  * @note 亮度调整通过右移BRIGHT_SHIFT位实现，BRIGHT_SHIFT越大亮度越低
  */
-void ledSetColorOneRaw(uint16_t bufferRaw[ONE_BUS_LED_NUM][24], uint8_t ledSeq, uint8_t ioSeq, uint32_t color){
-    uint8_t red = ((color >> 16) & 0xFF) >> BRIGHT_SHIFT;
-    uint8_t green = ((color >> 8) & 0xFF) >> BRIGHT_SHIFT;
-    uint8_t blue = (color & 0xFF) >> BRIGHT_SHIFT;
-    
-    uint32_t rgbColor = ((uint32_t)red << 16) | ((uint32_t)green << 8) | blue;
-    
-    for(int i = 0; i < 24; i++){
-        uint8_t bit = (rgbColor >> (23 - i)) & 1;
-        if(bit == 0){
-            bufferRaw[ledSeq][i] &= ~(1 << ioSeq);
-        } else {
-            bufferRaw[ledSeq][i] |= (1 << ioSeq);
+void ledSetColorOneRaw(uint16_t bufferRaw[ONE_BUS_LED_NUM][RAW_BUFFER_BITS], uint8_t ledSeq, uint8_t ioSeq, uint32_t color){
+    #if COLOR_DEPTH == 8
+        uint8_t red = (color >> 16) & 0xFF;
+        uint8_t green = (color >> 8) & 0xFF;
+        uint8_t blue = color & 0xFF;
+        uint32_t rgbColor = ((uint32_t)red << 16) | ((uint32_t)green << 8) | blue;
+        
+        for(int i = 0; i < 24; i++){
+            uint8_t bit = (rgbColor >> (23 - i)) & 1;
+            if(bit == 0){
+                bufferRaw[ledSeq][i] &= ~(1 << ioSeq);
+            } else {
+                bufferRaw[ledSeq][i] |= (1 << ioSeq);
+            }
         }
-    }
+    #elif COLOR_DEPTH == 4
+        // RGB444格式：压缩为12位存储
+        // 直接取原始颜色的高4位，亮度移位在RawToDma时进行
+        uint8_t r4 = ((color >> 16) & 0xFF) >> 4;
+        uint8_t g4 = ((color >> 8) & 0xFF) >> 4;
+        uint8_t b4 = (color & 0xFF) >> 4;
+        
+        uint16_t rgbColor = ((uint16_t)r4 << 8) | ((uint16_t)g4 << 4) | b4;
+        
+        for(int i = 0; i < 12; i++){
+            uint8_t bit = (rgbColor >> (11 - i)) & 1;
+            if(bit == 0){
+                bufferRaw[ledSeq][i] &= ~(1 << ioSeq);
+            } else {
+                bufferRaw[ledSeq][i] |= (1 << ioSeq);
+            }
+        }
+    #endif
 }
 
 /**
@@ -59,69 +96,100 @@ void ledSetColorOneRaw(uint16_t bufferRaw[ONE_BUS_LED_NUM][24], uint8_t ledSeq, 
  * @param color RGB颜色值，格式为0xRRGGBB
  */
 void ledSetColorOneDma(uint16_t bufferDma[ONE_BUS_LED_NUM][24*4], uint8_t ledSeq, uint8_t ioSeq, uint32_t color){
-    uint8_t red = ((color >> 16) & 0xFF) >> BRIGHT_SHIFT;
-    uint8_t green = ((color >> 8) & 0xFF) >> BRIGHT_SHIFT;
-    uint8_t blue = (color & 0xFF) >> BRIGHT_SHIFT;
-    
+    uint8_t red = (color >> 16) & 0xFF;
+    uint8_t green = (color >> 8) & 0xFF;
+    uint8_t blue = color & 0xFF;
     uint32_t rgbColor = ((uint32_t)red << 16) | ((uint32_t)green << 8) | blue;
-    
-    for(int i = 0; i < 24; i++){
-        uint8_t bit = (rgbColor >> (23 - i)) & 1;
-        if(bit == 0){
-            bufferDma[ledSeq][i*4] = (bufferDma[ledSeq][i*4] & ~(1 << ioSeq)) | (1 << ioSeq);
-            bufferDma[ledSeq][i*4+1] = (bufferDma[ledSeq][i*4+1] & ~(1 << ioSeq));
-            bufferDma[ledSeq][i*4+2] = (bufferDma[ledSeq][i*4+2] & ~(1 << ioSeq));
-            bufferDma[ledSeq][i*4+3] = (bufferDma[ledSeq][i*4+3] & ~(1 << ioSeq));
-        } else {
-            bufferDma[ledSeq][i*4] = (bufferDma[ledSeq][i*4] & ~(1 << ioSeq)) | (1 << ioSeq);
-            bufferDma[ledSeq][i*4+1] = (bufferDma[ledSeq][i*4+1] & ~(1 << ioSeq)) | (1 << ioSeq);
-            bufferDma[ledSeq][i*4+2] = (bufferDma[ledSeq][i*4+2] & ~(1 << ioSeq)) | (1 << ioSeq);
-            bufferDma[ledSeq][i*4+3] = (bufferDma[ledSeq][i*4+3] & ~(1 << ioSeq));
-        }
-    }
+
+    ledWriteDmaBits(bufferDma, ledSeq, ioSeq, rgbColor);
 }
 
 /**
  * @brief 将原始缓冲区数据转换为DMA格式（RGB协议）
+ * 
+ * 支持RGB888和RGB444两种颜色深度，RGB444会自动扩展为RGB888输出。
  * 
  * @param frameDma 目标DMA帧缓存指针
  * @param frameRaw 源原始帧缓存指针
  */
 void ledBufferRawToDma(memFrameDma * frameDma, memFrameRaw * frameRaw){
     for(int led = 0; led < ONE_BUS_LED_NUM; led++){
-        for(int bit = 0; bit < 24; bit++){
-            uint16_t rawValA = frameRaw->ledBufferRawA[led][bit];
-            uint16_t rawValB = frameRaw->ledBufferRawB[led][bit];
-            
+        #if COLOR_DEPTH == 8
+            // RGB888格式：亮度移位在此进行
             for(int io = 0; io < 16; io++){
-                uint8_t bitA = (rawValA >> io) & 1;
-                uint8_t bitB = (rawValB >> io) & 1;
-                
-                if(bitA == 0){
-                    frameDma->ledBufferDmaA[led][bit*4] = (frameDma->ledBufferDmaA[led][bit*4] & ~(1 << io)) | (1 << io);
-                    frameDma->ledBufferDmaA[led][bit*4+1] = (frameDma->ledBufferDmaA[led][bit*4+1] & ~(1 << io));
-                    frameDma->ledBufferDmaA[led][bit*4+2] = (frameDma->ledBufferDmaA[led][bit*4+2] & ~(1 << io));
-                    frameDma->ledBufferDmaA[led][bit*4+3] = (frameDma->ledBufferDmaA[led][bit*4+3] & ~(1 << io));
-                } else {
-                    frameDma->ledBufferDmaA[led][bit*4] = (frameDma->ledBufferDmaA[led][bit*4] & ~(1 << io)) | (1 << io);
-                    frameDma->ledBufferDmaA[led][bit*4+1] = (frameDma->ledBufferDmaA[led][bit*4+1] & ~(1 << io)) | (1 << io);
-                    frameDma->ledBufferDmaA[led][bit*4+2] = (frameDma->ledBufferDmaA[led][bit*4+2] & ~(1 << io)) | (1 << io);
-                    frameDma->ledBufferDmaA[led][bit*4+3] = (frameDma->ledBufferDmaA[led][bit*4+3] & ~(1 << io));
+                uint32_t colorA = 0;
+                uint32_t colorB = 0;
+                for(int bit = 0; bit < 24; bit++){
+                    if((frameRaw->ledBufferRawA[led][bit] >> io) & 1){
+                        colorA |= (1u << (23 - bit));
+                    }
+                    if((frameRaw->ledBufferRawB[led][bit] >> io) & 1){
+                        colorB |= (1u << (23 - bit));
+                    }
                 }
-                
-                if(bitB == 0){
-                    frameDma->ledBufferDmaB[led][bit*4] = (frameDma->ledBufferDmaB[led][bit*4] & ~(1 << io)) | (1 << io);
-                    frameDma->ledBufferDmaB[led][bit*4+1] = (frameDma->ledBufferDmaB[led][bit*4+1] & ~(1 << io));
-                    frameDma->ledBufferDmaB[led][bit*4+2] = (frameDma->ledBufferDmaB[led][bit*4+2] & ~(1 << io));
-                    frameDma->ledBufferDmaB[led][bit*4+3] = (frameDma->ledBufferDmaB[led][bit*4+3] & ~(1 << io));
-                } else {
-                    frameDma->ledBufferDmaB[led][bit*4] = (frameDma->ledBufferDmaB[led][bit*4] & ~(1 << io)) | (1 << io);
-                    frameDma->ledBufferDmaB[led][bit*4+1] = (frameDma->ledBufferDmaB[led][bit*4+1] & ~(1 << io)) | (1 << io);
-                    frameDma->ledBufferDmaB[led][bit*4+2] = (frameDma->ledBufferDmaB[led][bit*4+2] & ~(1 << io)) | (1 << io);
-                    frameDma->ledBufferDmaB[led][bit*4+3] = (frameDma->ledBufferDmaB[led][bit*4+3] & ~(1 << io));
-                }
+
+                uint8_t redA = (colorA >> 16) & 0xFF;
+                uint8_t greenA = (colorA >> 8) & 0xFF;
+                uint8_t blueA = colorA & 0xFF;
+                uint8_t redB = (colorB >> 16) & 0xFF;
+                uint8_t greenB = (colorB >> 8) & 0xFF;
+                uint8_t blueB = colorB & 0xFF;
+
+                redA = (uint8_t)(redA >> BRIGHT_SHIFT);
+                greenA = (uint8_t)(greenA >> BRIGHT_SHIFT);
+                blueA = (uint8_t)(blueA >> BRIGHT_SHIFT);
+                redB = (uint8_t)(redB >> BRIGHT_SHIFT);
+                greenB = (uint8_t)(greenB >> BRIGHT_SHIFT);
+                blueB = (uint8_t)(blueB >> BRIGHT_SHIFT);
+
+                colorA = ((uint32_t)redA << 16) | ((uint32_t)greenA << 8) | blueA;
+                colorB = ((uint32_t)redB << 16) | ((uint32_t)greenB << 8) | blueB;
+
+                ledWriteDmaBits(frameDma->ledBufferDmaA, led, io, colorA);
+                ledWriteDmaBits(frameDma->ledBufferDmaB, led, io, colorB);
             }
-        }
+        #elif COLOR_DEPTH == 4
+            // RGB444格式：先扩展到RGB888，再进行亮度移位
+            for(int io = 0; io < 16; io++){
+                uint16_t colorA12 = 0;
+                uint16_t colorB12 = 0;
+                for(int bit = 0; bit < 12; bit++){
+                    if((frameRaw->ledBufferRawA[led][bit] >> io) & 1){
+                        colorA12 |= (1u << (11 - bit));
+                    }
+                    if((frameRaw->ledBufferRawB[led][bit] >> io) & 1){
+                        colorB12 |= (1u << (11 - bit));
+                    }
+                }
+
+                uint8_t r4a = (colorA12 >> 8) & 0xF;
+                uint8_t g4a = (colorA12 >> 4) & 0xF;
+                uint8_t b4a = colorA12 & 0xF;
+                uint8_t r4b = (colorB12 >> 8) & 0xF;
+                uint8_t g4b = (colorB12 >> 4) & 0xF;
+                uint8_t b4b = colorB12 & 0xF;
+
+                uint8_t r8a = (uint8_t)(r4a << 4);
+                uint8_t g8a = (uint8_t)(g4a << 4);
+                uint8_t b8a = (uint8_t)(b4a << 4);
+                uint8_t r8b = (uint8_t)(r4b << 4);
+                uint8_t g8b = (uint8_t)(g4b << 4);
+                uint8_t b8b = (uint8_t)(b4b << 4);
+
+                r8a = (uint8_t)(r8a >> BRIGHT_SHIFT);
+                g8a = (uint8_t)(g8a >> BRIGHT_SHIFT);
+                b8a = (uint8_t)(b8a >> BRIGHT_SHIFT);
+                r8b = (uint8_t)(r8b >> BRIGHT_SHIFT);
+                g8b = (uint8_t)(g8b >> BRIGHT_SHIFT);
+                b8b = (uint8_t)(b8b >> BRIGHT_SHIFT);
+
+                uint32_t colorA = ((uint32_t)r8a << 16) | ((uint32_t)g8a << 8) | b8a;
+                uint32_t colorB = ((uint32_t)r8b << 16) | ((uint32_t)g8b << 8) | b8b;
+
+                ledWriteDmaBits(frameDma->ledBufferDmaA, led, io, colorA);
+                ledWriteDmaBits(frameDma->ledBufferDmaB, led, io, colorB);
+            }
+        #endif
     }
 }
 
@@ -130,27 +198,48 @@ void ledBufferRawToDma(memFrameDma * frameDma, memFrameRaw * frameRaw){
  * @brief 设置单个LED的颜色（GRB编码，带亮度控制）- Raw格式
  * 
  * 将指定颜色转换为GRB顺序后写入LED原始缓冲区。
+ * 支持RGB888和RGB444两种颜色深度。
  * 
- * @param bufferRaw LED原始缓冲区指针，二维数组[LED序号][数据位]，每个颜色占用24位
+ * @param bufferRaw LED原始缓冲区指针，二维数组[LED序号][数据位]
  * @param ledSeq LED在总线上的序号，范围0~ONE_BUS_LED_NUM-1
  * @param ioSeq 数据输出的GPIO引脚序号，对应ODR寄存器的某一位(0~15)
  * @param color RGB颜色值，格式为0xRRGGBB，函数内部转换为GRB顺序
  */
-void ledSetColorOneRaw(uint16_t bufferRaw[ONE_BUS_LED_NUM][24], uint8_t ledSeq, uint8_t ioSeq, uint32_t color){
-    uint8_t red = ((color >> 16) & 0xFF) >> BRIGHT_SHIFT;
-    uint8_t green = ((color >> 8) & 0xFF) >> BRIGHT_SHIFT;
-    uint8_t blue = (color & 0xFF) >> BRIGHT_SHIFT;
-    
-    uint32_t grbColor = ((uint32_t)green << 16) | ((uint32_t)red << 8) | blue;
-    
-    for(int i = 0; i < 24; i++){
-        uint8_t bit = (grbColor >> (23 - i)) & 1;
-        if(bit == 0){
-            bufferRaw[ledSeq][i] &= ~(1 << ioSeq);
-        } else {
-            bufferRaw[ledSeq][i] |= (1 << ioSeq);
+void ledSetColorOneRaw(uint16_t bufferRaw[ONE_BUS_LED_NUM][RAW_BUFFER_BITS], uint8_t ledSeq, uint8_t ioSeq, uint32_t color){
+    #if COLOR_DEPTH == 8
+        uint8_t red = (color >> 16) & 0xFF;
+        uint8_t green = (color >> 8) & 0xFF;
+        uint8_t blue = color & 0xFF;
+        // RGB888格式：直接存储24位颜色
+        uint32_t grbColor = ((uint32_t)green << 16) | ((uint32_t)red << 8) | blue;
+        
+        for(int i = 0; i < 24; i++){
+            uint8_t bit = (grbColor >> (23 - i)) & 1;
+            if(bit == 0){
+                bufferRaw[ledSeq][i] &= ~(1 << ioSeq);
+            } else {
+                bufferRaw[ledSeq][i] |= (1 << ioSeq);
+            }
         }
-    }
+    #elif COLOR_DEPTH == 4
+        // RGB444格式：压缩为12位存储（GRB顺序）
+        // 直接取原始颜色的高4位，亮度移位在RawToDma时进行
+        uint8_t r4 = ((color >> 16) & 0xFF) >> 4;
+        uint8_t g4 = ((color >> 8) & 0xFF) >> 4;
+        uint8_t b4 = (color & 0xFF) >> 4;
+        
+        // GRB顺序编码
+        uint16_t grbColor = ((uint16_t)g4 << 8) | ((uint16_t)r4 << 4) | b4;
+        
+        for(int i = 0; i < 12; i++){
+            uint8_t bit = (grbColor >> (11 - i)) & 1;
+            if(bit == 0){
+                bufferRaw[ledSeq][i] &= ~(1 << ioSeq);
+            } else {
+                bufferRaw[ledSeq][i] |= (1 << ioSeq);
+            }
+        }
+    #endif
 }
 
 /**
@@ -164,69 +253,100 @@ void ledSetColorOneRaw(uint16_t bufferRaw[ONE_BUS_LED_NUM][24], uint8_t ledSeq, 
  * @param color RGB颜色值，格式为0xRRGGBB，函数内部转换为GRB顺序
  */
 void ledSetColorOneDma(uint16_t bufferDma[ONE_BUS_LED_NUM][24*4], uint8_t ledSeq, uint8_t ioSeq, uint32_t color){
-    uint8_t red = ((color >> 16) & 0xFF) >> BRIGHT_SHIFT;
-    uint8_t green = ((color >> 8) & 0xFF) >> BRIGHT_SHIFT;
-    uint8_t blue = (color & 0xFF) >> BRIGHT_SHIFT;
-    
+    uint8_t red = (color >> 16) & 0xFF;
+    uint8_t green = (color >> 8) & 0xFF;
+    uint8_t blue = color & 0xFF;
     uint32_t grbColor = ((uint32_t)green << 16) | ((uint32_t)red << 8) | blue;
-    
-    for(int i = 0; i < 24; i++){
-        uint8_t bit = (grbColor >> (23 - i)) & 1;
-        if(bit == 0){
-            bufferDma[ledSeq][i*4] = (bufferDma[ledSeq][i*4] & ~(1 << ioSeq)) | (1 << ioSeq);
-            bufferDma[ledSeq][i*4+1] = (bufferDma[ledSeq][i*4+1] & ~(1 << ioSeq));
-            bufferDma[ledSeq][i*4+2] = (bufferDma[ledSeq][i*4+2] & ~(1 << ioSeq));
-            bufferDma[ledSeq][i*4+3] = (bufferDma[ledSeq][i*4+3] & ~(1 << ioSeq));
-        } else {
-            bufferDma[ledSeq][i*4] = (bufferDma[ledSeq][i*4] & ~(1 << ioSeq)) | (1 << ioSeq);
-            bufferDma[ledSeq][i*4+1] = (bufferDma[ledSeq][i*4+1] & ~(1 << ioSeq)) | (1 << ioSeq);
-            bufferDma[ledSeq][i*4+2] = (bufferDma[ledSeq][i*4+2] & ~(1 << ioSeq)) | (1 << ioSeq);
-            bufferDma[ledSeq][i*4+3] = (bufferDma[ledSeq][i*4+3] & ~(1 << ioSeq));
-        }
-    }
+
+    ledWriteDmaBits(bufferDma, ledSeq, ioSeq, grbColor);
 }
 
 /**
  * @brief 将原始缓冲区数据转换为DMA格式（GRB协议）
+ * 
+ * 支持RGB888和RGB444两种颜色深度，RGB444会自动扩展为RGB888输出。
  * 
  * @param frameDma 目标DMA帧缓存指针
  * @param frameRaw 源原始帧缓存指针
  */
 void ledBufferRawToDma(memFrameDma * frameDma, memFrameRaw * frameRaw){
     for(int led = 0; led < ONE_BUS_LED_NUM; led++){
-        for(int bit = 0; bit < 24; bit++){
-            uint16_t rawValA = frameRaw->ledBufferRawA[led][bit];
-            uint16_t rawValB = frameRaw->ledBufferRawB[led][bit];
-            
+        #if COLOR_DEPTH == 8
+            // GRB888格式：亮度移位在此进行
             for(int io = 0; io < 16; io++){
-                uint8_t bitA = (rawValA >> io) & 1;
-                uint8_t bitB = (rawValB >> io) & 1;
-                
-                if(bitA == 0){
-                    frameDma->ledBufferDmaA[led][bit*4] = (frameDma->ledBufferDmaA[led][bit*4] & ~(1 << io)) | (1 << io);
-                    frameDma->ledBufferDmaA[led][bit*4+1] = (frameDma->ledBufferDmaA[led][bit*4+1] & ~(1 << io));
-                    frameDma->ledBufferDmaA[led][bit*4+2] = (frameDma->ledBufferDmaA[led][bit*4+2] & ~(1 << io));
-                    frameDma->ledBufferDmaA[led][bit*4+3] = (frameDma->ledBufferDmaA[led][bit*4+3] & ~(1 << io));
-                } else {
-                    frameDma->ledBufferDmaA[led][bit*4] = (frameDma->ledBufferDmaA[led][bit*4] & ~(1 << io)) | (1 << io);
-                    frameDma->ledBufferDmaA[led][bit*4+1] = (frameDma->ledBufferDmaA[led][bit*4+1] & ~(1 << io)) | (1 << io);
-                    frameDma->ledBufferDmaA[led][bit*4+2] = (frameDma->ledBufferDmaA[led][bit*4+2] & ~(1 << io)) | (1 << io);
-                    frameDma->ledBufferDmaA[led][bit*4+3] = (frameDma->ledBufferDmaA[led][bit*4+3] & ~(1 << io));
+                uint32_t colorA = 0;
+                uint32_t colorB = 0;
+                for(int bit = 0; bit < 24; bit++){
+                    if((frameRaw->ledBufferRawA[led][bit] >> io) & 1){
+                        colorA |= (1u << (23 - bit));
+                    }
+                    if((frameRaw->ledBufferRawB[led][bit] >> io) & 1){
+                        colorB |= (1u << (23 - bit));
+                    }
                 }
-                
-                if(bitB == 0){
-                    frameDma->ledBufferDmaB[led][bit*4] = (frameDma->ledBufferDmaB[led][bit*4] & ~(1 << io)) | (1 << io);
-                    frameDma->ledBufferDmaB[led][bit*4+1] = (frameDma->ledBufferDmaB[led][bit*4+1] & ~(1 << io));
-                    frameDma->ledBufferDmaB[led][bit*4+2] = (frameDma->ledBufferDmaB[led][bit*4+2] & ~(1 << io));
-                    frameDma->ledBufferDmaB[led][bit*4+3] = (frameDma->ledBufferDmaB[led][bit*4+3] & ~(1 << io));
-                } else {
-                    frameDma->ledBufferDmaB[led][bit*4] = (frameDma->ledBufferDmaB[led][bit*4] & ~(1 << io)) | (1 << io);
-                    frameDma->ledBufferDmaB[led][bit*4+1] = (frameDma->ledBufferDmaB[led][bit*4+1] & ~(1 << io)) | (1 << io);
-                    frameDma->ledBufferDmaB[led][bit*4+2] = (frameDma->ledBufferDmaB[led][bit*4+2] & ~(1 << io)) | (1 << io);
-                    frameDma->ledBufferDmaB[led][bit*4+3] = (frameDma->ledBufferDmaB[led][bit*4+3] & ~(1 << io));
-                }
+
+                uint8_t greenA = (colorA >> 16) & 0xFF;
+                uint8_t redA = (colorA >> 8) & 0xFF;
+                uint8_t blueA = colorA & 0xFF;
+                uint8_t greenB = (colorB >> 16) & 0xFF;
+                uint8_t redB = (colorB >> 8) & 0xFF;
+                uint8_t blueB = colorB & 0xFF;
+
+                greenA = (uint8_t)(greenA >> BRIGHT_SHIFT);
+                redA = (uint8_t)(redA >> BRIGHT_SHIFT);
+                blueA = (uint8_t)(blueA >> BRIGHT_SHIFT);
+                greenB = (uint8_t)(greenB >> BRIGHT_SHIFT);
+                redB = (uint8_t)(redB >> BRIGHT_SHIFT);
+                blueB = (uint8_t)(blueB >> BRIGHT_SHIFT);
+
+                colorA = ((uint32_t)greenA << 16) | ((uint32_t)redA << 8) | blueA;
+                colorB = ((uint32_t)greenB << 16) | ((uint32_t)redB << 8) | blueB;
+
+                ledWriteDmaBits(frameDma->ledBufferDmaA, led, io, colorA);
+                ledWriteDmaBits(frameDma->ledBufferDmaB, led, io, colorB);
             }
-        }
+        #elif COLOR_DEPTH == 4
+            // GRB444格式：先扩展到GRB888，再进行亮度移位
+            for(int io = 0; io < 16; io++){
+                uint16_t colorA12 = 0;
+                uint16_t colorB12 = 0;
+                for(int bit = 0; bit < 12; bit++){
+                    if((frameRaw->ledBufferRawA[led][bit] >> io) & 1){
+                        colorA12 |= (1u << (11 - bit));
+                    }
+                    if((frameRaw->ledBufferRawB[led][bit] >> io) & 1){
+                        colorB12 |= (1u << (11 - bit));
+                    }
+                }
+
+                uint8_t g4a = (colorA12 >> 8) & 0xF;
+                uint8_t r4a = (colorA12 >> 4) & 0xF;
+                uint8_t b4a = colorA12 & 0xF;
+                uint8_t g4b = (colorB12 >> 8) & 0xF;
+                uint8_t r4b = (colorB12 >> 4) & 0xF;
+                uint8_t b4b = colorB12 & 0xF;
+
+                uint8_t g8a = (uint8_t)(g4a << 4);
+                uint8_t r8a = (uint8_t)(r4a << 4);
+                uint8_t b8a = (uint8_t)(b4a << 4);
+                uint8_t g8b = (uint8_t)(g4b << 4);
+                uint8_t r8b = (uint8_t)(r4b << 4);
+                uint8_t b8b = (uint8_t)(b4b << 4);
+
+                g8a = (uint8_t)(g8a >> BRIGHT_SHIFT);
+                r8a = (uint8_t)(r8a >> BRIGHT_SHIFT);
+                b8a = (uint8_t)(b8a >> BRIGHT_SHIFT);
+                g8b = (uint8_t)(g8b >> BRIGHT_SHIFT);
+                r8b = (uint8_t)(r8b >> BRIGHT_SHIFT);
+                b8b = (uint8_t)(b8b >> BRIGHT_SHIFT);
+
+                uint32_t colorA = ((uint32_t)g8a << 16) | ((uint32_t)r8a << 8) | b8a;
+                uint32_t colorB = ((uint32_t)g8b << 16) | ((uint32_t)r8b << 8) | b8b;
+
+                ledWriteDmaBits(frameDma->ledBufferDmaA, led, io, colorA);
+                ledWriteDmaBits(frameDma->ledBufferDmaB, led, io, colorB);
+            }
+        #endif
     }
 }
 #endif
@@ -236,9 +356,9 @@ void ledBufferRawToDma(memFrameDma * frameDma, memFrameRaw * frameRaw){
  * 
  * @param bufferRaw 要清空的LED原始缓冲区指针
  */
-void ledBufferClearRaw(uint16_t bufferRaw[ONE_BUS_LED_NUM][24]){
+void ledBufferClearRaw(uint16_t bufferRaw[ONE_BUS_LED_NUM][RAW_BUFFER_BITS]){
     for(int i = 0; i < ONE_BUS_LED_NUM; i++){
-        for(int j = 0; j < 24; j++){
+        for(int j = 0; j < RAW_BUFFER_BITS; j++){
             bufferRaw[i][j] = 0x0000;
         }
     }
