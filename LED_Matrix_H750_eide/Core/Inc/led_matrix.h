@@ -28,7 +28,6 @@ typedef struct {
     uint16_t ledBufferRawA[ONE_BUS_LED_NUM][RAW_BUFFER_BITS];//LED矩阵有两个半柱面，所以需要AB。共有GPIOD和E分别输出两个半柱面，一开始DE分别输出AB柱面，转半圈后DE分别输出BA柱面
     uint16_t ledBufferRawB[ONE_BUS_LED_NUM][RAW_BUFFER_BITS];
 } memFrameRaw;//存储原始数据的帧缓存，经过协议转换后写入FrameDma用于DMA输出
-extern memFrameRaw FrameRaw[RAW_BUFFER_CYLINDER_NUM];
 typedef struct {
     uint16_t ledBufferDmaA[ONE_BUS_LED_NUM][24*4];
     uint16_t ledBufferDmaB[ONE_BUS_LED_NUM][24*4];
@@ -43,6 +42,9 @@ void ledSetColorOneDma(uint16_t bufferDma[ONE_BUS_LED_NUM][24*4], uint8_t ledSeq
 void ledBufferClearDma(uint16_t bufferDma[ONE_BUS_LED_NUM][24*4]);
 void ledBufferRawToDma(memFrameDma * frameDma, memFrameRaw * frameRaw);
 void ledBufferInit(void);
+memFrameRaw * ledGetRenderRaw(void);
+memFrameRaw * ledGetFillRaw(void);
+void ledSwapRawBuffers(void);
 void ledPushGPIO(memFrameDma * frame, uint8_t mode);
 void ledPushGPIOVolume(memFrameDma * frame);
 #endif

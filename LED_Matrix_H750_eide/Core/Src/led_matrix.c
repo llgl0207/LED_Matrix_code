@@ -14,7 +14,9 @@
  * 存储所有LED灯的颜色数据，每个圆柱体占用两个缓冲区(A和B)用于双缓冲显示。
  * 数据格式：displayMem[圆柱体序号].ledBufferA/B[LED序号][数据位]
  */
-memFrameRaw FrameRaw[RAW_BUFFER_CYLINDER_NUM];
+static memFrameRaw FrameRawBuffers[2][RAW_BUFFER_CYLINDER_NUM];
+static uint8_t g_renderRawIndex = 0;
+static uint8_t g_fillRawIndex = 1;
 __attribute__((section(".dma_d2"))) memFrameDma FrameDmaA[DMA_BUFFER_CYLINDER_NUM];
 memFrameDma FrameDmaB[DMA_BUFFER_CYLINDER_NUM];
 
@@ -391,15 +393,38 @@ void ledBufferClearDma(uint16_t bufferDma[ONE_BUS_LED_NUM][24*4]){
  * 所有LED处于已知的关闭状态。
  */
 void ledBufferInit(void){
-    for(int i = 0; i < RAW_BUFFER_CYLINDER_NUM; i++){
-        ledBufferClearRaw(FrameRaw[i].ledBufferRawA);
-        ledBufferClearRaw(FrameRaw[i].ledBufferRawB);
+    g_renderRawIndex = 0;
+    g_fillRawIndex = 1;
+    for(int buf = 0; buf < 2; buf++){
+        for(int i = 0; i < RAW_BUFFER_CYLINDER_NUM; i++){
+            ledBufferClearRaw(FrameRawBuffers[buf][i].ledBufferRawA);
+            ledBufferClearRaw(FrameRawBuffers[buf][i].ledBufferRawB);
+        }
     }
     for(int i = 0; i < DMA_BUFFER_CYLINDER_NUM; i++){
         ledBufferClearDma(FrameDmaA[i].ledBufferDmaA);
         ledBufferClearDma(FrameDmaA[i].ledBufferDmaB);
         ledBufferClearDma(FrameDmaB[i].ledBufferDmaA);
         ledBufferClearDma(FrameDmaB[i].ledBufferDmaB);
+    }
+}
+
+memFrameRaw * ledGetRenderRaw(void){
+    return FrameRawBuffers[g_renderRawIndex];
+}
+
+memFrameRaw * ledGetFillRaw(void){
+    return FrameRawBuffers[g_fillRawIndex];
+}
+
+void ledSwapRawBuffers(void){
+    uint8_t oldRender = g_renderRawIndex;
+    g_renderRawIndex = g_fillRawIndex;
+    g_fillRawIndex = oldRender;
+
+    for(int i = 0; i < RAW_BUFFER_CYLINDER_NUM; i++){
+        ledBufferClearRaw(FrameRawBuffers[g_fillRawIndex][i].ledBufferRawA);
+        ledBufferClearRaw(FrameRawBuffers[g_fillRawIndex][i].ledBufferRawB);
     }
 }
 

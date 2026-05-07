@@ -76,6 +76,9 @@ typedef enum {
 
 static PatternType g_pattern = PATTERN_CUBE;
 static const float kHeightToWidth = 2.0f;
+static const PatternType kPatternCycle[] = {PATTERN_CYLINDER, PATTERN_CONE, PATTERN_CUBE};
+static uint8_t g_patternIndex = 0;
+static uint32_t g_lastPatternTick = 0;
 
 /*
 注意，当前的显示器设计是RAW_BUFFER_CYLINDER_NUM个RAW切片，每个切片内包含两个数组，分别在各自对面，
@@ -94,6 +97,111 @@ static void MPU_Config(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+static void ledBuildPatternFrames(PatternType pattern){
+  memFrameRaw *fillRaw = ledGetFillRaw();
+
+  for (int frameIdx = 0; frameIdx < RAW_BUFFER_CYLINDER_NUM; frameIdx++) {
+    ledBufferClearRaw(fillRaw[frameIdx].ledBufferRawA);
+    ledBufferClearRaw(fillRaw[frameIdx].ledBufferRawB);
+
+    switch (pattern) {
+      case PATTERN_COLOR: {
+        uint32_t colors[8] = {
+          0xFF0000,
+          0x00FF00,
+          0x0000FF,
+          0xFFFF00,
+          0xFF00FF,
+          0x00FFFF,
+          0xFF8800,
+          0xFF88FF
+        };
+
+        int colorIdx = (frameIdx * 8) / RAW_BUFFER_CYLINDER_NUM;
+        uint32_t colorA = colors[colorIdx % 8];
+        uint32_t colorB = colors[(colorIdx + 4) % 8];
+
+        for (int ledPos = 0; ledPos < ONE_BUS_LED_NUM; ledPos++) {
+          for (int io = 0; io < 16; io++) {
+            ledSetColorOneRaw(fillRaw[frameIdx].ledBufferRawA, ledPos, io, colorA);
+            ledSetColorOneRaw(fillRaw[frameIdx].ledBufferRawB, ledPos, io, colorB);
+          }
+        }
+        break;
+      }
+      case PATTERN_CYLINDER: {
+        for (int ledPos = 0; ledPos < ONE_BUS_LED_NUM; ledPos++) {
+          for (int io = 0; io < 16; io++) {
+            ledSetColorOneRaw(fillRaw[frameIdx].ledBufferRawA, ledPos, io, 0xFFFFFF);
+            ledSetColorOneRaw(fillRaw[frameIdx].ledBufferRawB, ledPos, io, 0xFFFFFF);
+          }
+        }
+        break;
+      }
+      case PATTERN_CONE: {
+        for (int io = 0; io < 16; io++) {
+          float z = 1.0f - (2.0f * ((float)io / 15.0f));
+          float zScaled = z / kHeightToWidth;
+          float t = (zScaled + 1.0f) * 0.5f;
+          if (t < 0.0f) {
+            t = 0.0f;
+          }
+          if (t > 1.0f) {
+            t = 1.0f;
+          }
+          int radiusCount = (int)((t * (float)ONE_BUS_LED_NUM) + 0.5f);
+          int start = ONE_BUS_LED_NUM - radiusCount;
+          if (start < 0) {
+            start = 0;
+          }
+          for (int ledPos = start; ledPos < ONE_BUS_LED_NUM; ledPos++) {
+            ledSetColorOneRaw(fillRaw[frameIdx].ledBufferRawA, ledPos, io, 0xFFFFFF);
+            ledSetColorOneRaw(fillRaw[frameIdx].ledBufferRawB, ledPos, io, 0xFFFFFF);
+          }
+        }
+        break;
+      }
+      case PATTERN_CUBE: {
+        const float cubeHalf = 0.75f;
+        float theta = (3.1415926f * (float)frameIdx) / (float)RAW_BUFFER_CYLINDER_NUM;
+        float c = cosf(theta);
+        float s = sinf(theta);
+        for (int ledPos = 0; ledPos < ONE_BUS_LED_NUM; ledPos++) {
+          float r = 1.0f - ((float)ledPos / 15.0f);
+          float x = r * c;
+          float y = r * s;
+          float ax = fabsf(x);
+          float ay = fabsf(y);
+          for (int io = 0; io < 16; io++) {
+            float z = 1.0f - (2.0f * ((float)io / 15.0f));
+            float az = fabsf(z) / kHeightToWidth;
+            if ((ax <= cubeHalf) && (ay <= cubeHalf) && (az <= cubeHalf)) {
+              ledSetColorOneRaw(fillRaw[frameIdx].ledBufferRawA, ledPos, io, 0xFFFFFF);
+              ledSetColorOneRaw(fillRaw[frameIdx].ledBufferRawB, ledPos, io, 0xFFFFFF);
+            }
+          }
+        }
+        break;
+      }
+      default:
+        break;
+    }
+  }
+
+  ledSwapRawBuffers();
+
+  memFrameRaw *renderRaw = ledGetRenderRaw();
+  for (int i = 0; i < DMA_BUFFER_CYLINDER_NUM; i++) {
+    ledBufferClearDma(FrameDmaA[i].ledBufferDmaA);
+    ledBufferClearDma(FrameDmaA[i].ledBufferDmaB);
+    ledBufferRawToDma(&FrameDmaA[i], &renderRaw[i]);
+
+    ledBufferClearDma(FrameDmaB[i].ledBufferDmaA);
+    ledBufferClearDma(FrameDmaB[i].ledBufferDmaB);
+    ledBufferRawToDma(&FrameDmaB[i], &renderRaw[i + DMA_BUFFER_CYLINDER_NUM]);
+  }
+}
 
 /* USER CODE END 0 */
 
@@ -153,108 +261,10 @@ int main(void)
   // 初始化LED缓冲区
   ledBufferInit();
   
-  // 初始化所有Raw帧（可切换不同图案）
-  for (int frameIdx = 0; frameIdx < RAW_BUFFER_CYLINDER_NUM; frameIdx++) {
-    ledBufferClearRaw(FrameRaw[frameIdx].ledBufferRawA);
-    ledBufferClearRaw(FrameRaw[frameIdx].ledBufferRawB);
-
-    switch (g_pattern) {
-      case PATTERN_COLOR: {
-        uint32_t colors[8] = {
-          0xFF0000,
-          0x00FF00,
-          0x0000FF,
-          0xFFFF00,
-          0xFF00FF,
-          0x00FFFF,
-          0xFF8800,
-          0xFF88FF
-        };
-
-        int colorIdx = (frameIdx * 8) / RAW_BUFFER_CYLINDER_NUM;
-        uint32_t colorA = colors[colorIdx % 8];
-        uint32_t colorB = colors[(colorIdx + 4) % 8];
-
-        for (int ledPos = 0; ledPos < ONE_BUS_LED_NUM; ledPos++) {
-          for (int io = 0; io < 16; io++) {
-            ledSetColorOneRaw(FrameRaw[frameIdx].ledBufferRawA, ledPos, io, colorA);
-            ledSetColorOneRaw(FrameRaw[frameIdx].ledBufferRawB, ledPos, io, colorB);
-          }
-        }
-        break;
-      }
-      case PATTERN_CYLINDER: {
-        for (int ledPos = 0; ledPos < ONE_BUS_LED_NUM; ledPos++) {
-          for (int io = 0; io < 16; io++) {
-            ledSetColorOneRaw(FrameRaw[frameIdx].ledBufferRawA, ledPos, io, 0xFFFFFF);
-            ledSetColorOneRaw(FrameRaw[frameIdx].ledBufferRawB, ledPos, io, 0xFFFFFF);
-          }
-        }
-        break;
-      }
-      case PATTERN_CONE: {
-        for (int io = 0; io < 16; io++) {
-          float z = 1.0f - (2.0f * ((float)io / 15.0f));
-          float zScaled = z / kHeightToWidth;
-          float t = (zScaled + 1.0f) * 0.5f;
-          if (t < 0.0f) {
-            t = 0.0f;
-          }
-          if (t > 1.0f) {
-            t = 1.0f;
-          }
-          int radiusCount = (int)((t * (float)ONE_BUS_LED_NUM) + 0.5f);
-          int start = ONE_BUS_LED_NUM - radiusCount;
-          if (start < 0) {
-            start = 0;
-          }
-          for (int ledPos = start; ledPos < ONE_BUS_LED_NUM; ledPos++) {
-            ledSetColorOneRaw(FrameRaw[frameIdx].ledBufferRawA, ledPos, io, 0xFFFFFF);
-            ledSetColorOneRaw(FrameRaw[frameIdx].ledBufferRawB, ledPos, io, 0xFFFFFF);
-          }
-        }
-        break;
-      }
-      case PATTERN_CUBE: {
-        const float cubeHalf = 0.75f;
-        float theta = (3.1415926f * (float)frameIdx) / (float)RAW_BUFFER_CYLINDER_NUM;
-        float c = cosf(theta);
-        float s = sinf(theta);
-        for (int ledPos = 0; ledPos < ONE_BUS_LED_NUM; ledPos++) {
-          float r = 1.0f - ((float)ledPos / 15.0f);
-          float x = r * c;
-          float y = r * s;
-          float ax = fabsf(x);
-          float ay = fabsf(y);
-          for (int io = 0; io < 16; io++) {
-            float z = 1.0f - (2.0f * ((float)io / 15.0f));
-            float az = fabsf(z) / kHeightToWidth;
-            if ((ax <= cubeHalf) && (ay <= cubeHalf) && (az <= cubeHalf)) {
-              ledSetColorOneRaw(FrameRaw[frameIdx].ledBufferRawA, ledPos, io, 0xFFFFFF);
-              ledSetColorOneRaw(FrameRaw[frameIdx].ledBufferRawB, ledPos, io, 0xFFFFFF);
-            }
-          }
-        }
-        break;
-      }
-      default:
-        break;
-    }
-  }
-  
-  // 预加载初始DMA数据（只加载前32帧）
-  // FrameDmaA存储FrameRaw[0-15]，FrameDmaB存储FrameRaw[16-31]
-  for (int i = 0; i < DMA_BUFFER_CYLINDER_NUM; i++) {
-    // FrameDmaA[i] 对应 FrameRaw[i]
-    ledBufferClearDma(FrameDmaA[i].ledBufferDmaA);
-    ledBufferClearDma(FrameDmaA[i].ledBufferDmaB);
-    ledBufferRawToDma(&FrameDmaA[i], &FrameRaw[i]);
-    
-    // FrameDmaB[i] 对应 FrameRaw[i + DMA_BUFFER_CYLINDER_NUM]
-    ledBufferClearDma(FrameDmaB[i].ledBufferDmaA);
-    ledBufferClearDma(FrameDmaB[i].ledBufferDmaB);
-    ledBufferRawToDma(&FrameDmaB[i], &FrameRaw[i + DMA_BUFFER_CYLINDER_NUM]);
-  }
+  g_patternIndex = 0;
+  g_pattern = kPatternCycle[g_patternIndex];
+  ledBuildPatternFrames(g_pattern);
+  g_lastPatternTick = HAL_GetTick();
 
   /* USER CODE END 2 */
 
@@ -262,6 +272,14 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+    uint32_t now = HAL_GetTick();
+    if ((now - g_lastPatternTick) >= 5000) {
+      g_patternIndex = (g_patternIndex + 1) % (sizeof(kPatternCycle) / sizeof(kPatternCycle[0]));
+      g_pattern = kPatternCycle[g_patternIndex];
+      ledBuildPatternFrames(g_pattern);
+      g_lastPatternTick = now;
+    }
+
     // 后台任务：动态加载Raw帧到DMA缓冲区
     if (isRefreshing) {
       // 计算需要预加载的帧索引（领先当前显示帧2*DMA_BUFFER_CYLINDER_NUM）
@@ -279,10 +297,11 @@ int main(void)
         targetDma = &FrameDmaB[dmaIdx];
       }
       
+      memFrameRaw *currentRenderRaw = ledGetRenderRaw();
       // 从Raw缓冲区转换到DMA缓冲区
       ledBufferClearDma(targetDma->ledBufferDmaA);
       ledBufferClearDma(targetDma->ledBufferDmaB);
-      ledBufferRawToDma(targetDma, &FrameRaw[rawFrameIdx]);
+      ledBufferRawToDma(targetDma, &currentRenderRaw[rawFrameIdx]);
     }
 
     // 待机状态：可以添加低功耗处理或其他任务

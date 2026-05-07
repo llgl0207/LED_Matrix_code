@@ -1,9 +1,8 @@
 
 
 
-Breakpoint=e:/EE/LED_Matrix_code/LED_Matrix_H750_eide/Core/Src/main.c:283:3, State=BP_STATE_DISABLED
-Breakpoint=e:/EE/LED_Matrix_code/LED_Matrix_H750_eide/Core/Src/main.c:296:5, State=BP_STATE_DISABLED
-Breakpoint=e:/EE/LED_Matrix_code/LED_Matrix_H750_eide/Core/Src/main.c:344:7, State=BP_STATE_DISABLED
+Breakpoint=e:/EE/LED_Matrix_code/LED_Matrix_H750_eide/Core/Src/main.c:302:1, State=BP_STATE_DISABLED
+Breakpoint=e:/EE/LED_Matrix_code/LED_Matrix_H750_eide/Core/Src/main.c:354:1, State=BP_STATE_DISABLED
 OpenDocument="startup_stm32h750xx.s", FilePath="e:/EE/LED_Matrix_code/LED_Matrix_H750_eide/MDK-ARM/startup_stm32h750xx.s", Line=225
 OpenDocument="main.c", FilePath="e:/EE/LED_Matrix_code/LED_Matrix_H750_eide/Core/Src/main.c", Line=70
 OpenDocument="stm32h7xx_hal_gpio.c", FilePath="e:/EE/LED_Matrix_code/LED_Matrix_H750_eide/Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_hal_gpio.c", Line=489
@@ -11,11 +10,11 @@ OpenDocument="stm32h7xx_hal.c", FilePath="e:/EE/LED_Matrix_code/LED_Matrix_H750_
 OpenDocument="stm32h7xx_hal_rcc.c", FilePath="e:/EE/LED_Matrix_code/LED_Matrix_H750_eide/Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_hal_rcc.c", Line=1203
 OpenDocument="stm32h7xx_hal_tim.c", FilePath="e:/EE/LED_Matrix_code/LED_Matrix_H750_eide/Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_hal_tim.c", Line=3958
 OpenToolbar="Debug", Floating=0, x=0, y=0
-OpenWindow="Source Files", DockArea=LEFT, x=0, y=1, w=1112, h=514, TabPos=1, TopOfStack=0, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=0
-OpenWindow="Disassembly", DockArea=RIGHT, x=0, y=0, w=524, h=517, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=0
-OpenWindow="Watched Data 1", DockArea=LEFT, x=0, y=1, w=1112, h=514, TabPos=0, TopOfStack=1, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=0
-OpenWindow="Data Sampling", DockArea=RIGHT, x=0, y=1, w=524, h=810, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=0, VisibleTab=0, UniformSampleSpacing=0
-OpenWindow="Timeline", DockArea=LEFT, x=0, y=0, w=1112, h=794, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=1, DataPaneShown=1, PowerPaneShown=0, CodePaneShown=0, PinCursor="Cursor Movable", TimePerDiv="5 s / Div", TimeStampFormat="Time", DataGraphDrawAsPoints=0, DataGraphLegendShown=1, DataGraphUniformSampleSpacing=0, DataGraphLegendPosition="885;0", DataGraphShowNamesAtCursor=0, PowerGraphDrawAsPoints=0, PowerGraphLegendShown=0, PowerGraphAvgFilterTime=Off, PowerGraphAvgFilterLen=Off, PowerGraphUniformSampleSpacing=0, PowerGraphLegendPosition="522;-71", CodeGraphLegendShown=0, CodeGraphLegendPosition="538;0"
+OpenWindow="Source Files", DockArea=LEFT, x=0, y=1, w=1112, h=517, TabPos=1, TopOfStack=0, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=0
+OpenWindow="Disassembly", DockArea=RIGHT, x=0, y=0, w=524, h=521, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=0
+OpenWindow="Watched Data 1", DockArea=LEFT, x=0, y=1, w=1112, h=517, TabPos=0, TopOfStack=1, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=0
+OpenWindow="Data Sampling", DockArea=RIGHT, x=0, y=1, w=524, h=806, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=0, VisibleTab=0, UniformSampleSpacing=0
+OpenWindow="Timeline", DockArea=LEFT, x=0, y=0, w=1112, h=791, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=1, DataPaneShown=1, PowerPaneShown=0, CodePaneShown=0, PinCursor="Cursor Movable", TimePerDiv="5 s / Div", TimeStampFormat="Time", DataGraphDrawAsPoints=0, DataGraphLegendShown=1, DataGraphUniformSampleSpacing=0, DataGraphLegendPosition="885;0", DataGraphShowNamesAtCursor=0, PowerGraphDrawAsPoints=0, PowerGraphLegendShown=0, PowerGraphAvgFilterTime=Off, PowerGraphAvgFilterLen=Off, PowerGraphUniformSampleSpacing=0, PowerGraphLegendPosition="885;0", CodeGraphLegendShown=0, CodeGraphLegendPosition="901;0"
 OpenWindow="Console", DockArea=BOTTOM, x=0, y=0, w=2560, h=119, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=0
 SmartViewPlugin="", Page="", Toolbar="Hidden", Window="SmartView 1"
 TableHeader="Source Files", SortCol="File", SortOrder="ASCENDING", VisibleCols=["File";"Status";"Size";"#Insts";"Path"], ColWidths=[239;100;100;100;838]
@@ -23,8 +22,8 @@ TableHeader="Data Sampling Table", SortCol="None", SortOrder="ASCENDING", Visibl
 TableHeader="Data Sampling Setup", SortCol="Expression", SortOrder="ASCENDING", VisibleCols=["Expression";"Type";"Value";"Min";"Max";"Average";"# Changes";"Min. Change";"Max. Change"], ColWidths=[118;100;100;100;100;100;110;126;126]
 TableHeader="Power Sampling", SortCol="None", SortOrder="ASCENDING", VisibleCols=["Index";"Time";"Ch 0"], ColWidths=[100;100;100]
 TableHeader="RegisterSelectionDialog", SortCol="None", SortOrder="ASCENDING", VisibleCols=[], ColWidths=[]
-TableHeader="TargetExceptionDialog", SortCol="Name", SortOrder="ASCENDING", VisibleCols=["Name";"Value";"Address";"Description"], ColWidths=[200;100;100;1212]
 TableHeader="Watched Data 1", SortCol="Expression", SortOrder="ASCENDING", VisibleCols=["Expression";"Value";"Refresh"], ColWidths=[206;535;371]
+TableHeader="TargetExceptionDialog", SortCol="Name", SortOrder="ASCENDING", VisibleCols=["Name";"Value";"Address";"Description"], ColWidths=[200;100;100;1212]
 WatchedExpression="a", RefreshRate=5, Window=Watched Data 1
 WatchedExpression="spi_rx_count", RefreshRate=5, Window=Watched Data 1
 WatchedExpression="spi_last_rx_word", RefreshRate=5, Window=Watched Data 1
