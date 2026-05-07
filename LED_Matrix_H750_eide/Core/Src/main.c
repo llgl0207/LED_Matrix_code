@@ -62,7 +62,7 @@ uint32_t irqInterval = 1000;    // 两次中断的时间间隔（毫秒），初
 #define FRAME_COUNT (RAW_BUFFER_CYLINDER_NUM * 2)  // 动画总帧数（64帧完成一圈）
 
 // 用于计算平均值的历史数据
-#define SAMPLE_COUNT 50          // 取前50次的平均值
+#define SAMPLE_COUNT 10          // 取前50次的平均值
 uint32_t intervalHistory[50]; // 存储最近50次中断间隔
 uint8_t historyIndex = 0;        // 当前存储位置索引
 uint8_t sampleCount = 0;         // 当前已有样本数量
@@ -79,6 +79,9 @@ static const float kHeightToWidth = 2.0f;
 static const PatternType kPatternCycle[] = {PATTERN_CYLINDER, PATTERN_CONE, PATTERN_CUBE};
 static uint8_t g_patternIndex = 0;
 static uint32_t g_lastPatternTick = 0;
+static uint32_t g_lastFrameTick = 0;
+static float g_cubeAngle = 0.0f;
+static const float kCubeAngleStep = 0.1745329f;
 
 /*
 注意，当前的显示器设计是RAW_BUFFER_CYLINDER_NUM个RAW切片，每个切片内包含两个数组，分别在各自对面，
@@ -97,6 +100,18 @@ static void MPU_Config(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+static uint32_t ledRainbowColor(float phase){
+  float r = sinf(phase) * 0.5f + 0.5f;
+  float g = sinf(phase + 2.0943951f) * 0.5f + 0.5f;
+  float b = sinf(phase + 4.1887902f) * 0.5f + 0.5f;
+
+  uint8_t red = (uint8_t)(r * 255.0f);
+  uint8_t green = (uint8_t)(g * 255.0f);
+  uint8_t blue = (uint8_t)(b * 255.0f);
+
+  return ((uint32_t)red << 16) | ((uint32_t)green << 8) | blue;
+}
 
 static void ledBuildPatternFrames(PatternType pattern){
   memFrameRaw *fillRaw = ledGetFillRaw();
@@ -164,7 +179,7 @@ static void ledBuildPatternFrames(PatternType pattern){
       }
       case PATTERN_CUBE: {
         const float cubeHalf = 0.75f;
-        float theta = (3.1415926f * (float)frameIdx) / (float)RAW_BUFFER_CYLINDER_NUM;
+        float theta = g_cubeAngle + (3.1415926f * (float)frameIdx) / (float)RAW_BUFFER_CYLINDER_NUM;
         float c = cosf(theta);
         float s = sinf(theta);
         for (int ledPos = 0; ledPos < ONE_BUS_LED_NUM; ledPos++) {
@@ -177,8 +192,10 @@ static void ledBuildPatternFrames(PatternType pattern){
             float z = 1.0f - (2.0f * ((float)io / 15.0f));
             float az = fabsf(z) / kHeightToWidth;
             if ((ax <= cubeHalf) && (ay <= cubeHalf) && (az <= cubeHalf)) {
-              ledSetColorOneRaw(fillRaw[frameIdx].ledBufferRawA, ledPos, io, 0xFFFFFF);
-              ledSetColorOneRaw(fillRaw[frameIdx].ledBufferRawB, ledPos, io, 0xFFFFFF);
+              float phase = g_cubeAngle + (float)frameIdx * 0.12f + (float)ledPos * 0.35f + (float)io * 0.22f;
+              uint32_t color = ledRainbowColor(phase);
+              ledSetColorOneRaw(fillRaw[frameIdx].ledBufferRawA, ledPos, io, color);
+              ledSetColorOneRaw(fillRaw[frameIdx].ledBufferRawB, ledPos, io, color);
             }
           }
         }
@@ -261,10 +278,9 @@ int main(void)
   // 初始化LED缓冲区
   ledBufferInit();
   
-  g_patternIndex = 0;
-  g_pattern = kPatternCycle[g_patternIndex];
+  g_pattern = PATTERN_CUBE;
   ledBuildPatternFrames(g_pattern);
-  g_lastPatternTick = HAL_GetTick();
+  g_lastFrameTick = HAL_GetTick();
 
   /* USER CODE END 2 */
 
@@ -273,11 +289,14 @@ int main(void)
   while (1)
   {
     uint32_t now = HAL_GetTick();
-    if ((now - g_lastPatternTick) >= 5000) {
-      g_patternIndex = (g_patternIndex + 1) % (sizeof(kPatternCycle) / sizeof(kPatternCycle[0]));
-      g_pattern = kPatternCycle[g_patternIndex];
+    if ((now - g_lastFrameTick) >= 50) {
+      g_pattern = PATTERN_CUBE;
+      g_cubeAngle += kCubeAngleStep;
+      if (g_cubeAngle > 6.2831852f) {
+        g_cubeAngle -= 6.2831852f;
+      }
       ledBuildPatternFrames(g_pattern);
-      g_lastPatternTick = now;
+      g_lastFrameTick = now;
     }
 
     // 后台任务：动态加载Raw帧到DMA缓冲区
