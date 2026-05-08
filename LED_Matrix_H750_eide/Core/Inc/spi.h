@@ -41,7 +41,8 @@ extern SPI_HandleTypeDef hspi1;
 void MX_SPI1_Init(void);
 
 /* USER CODE BEGIN Prototypes */
-
+void SPI_FrameInit(void);
+void SPI_FramePoll(void);
 /* USER CODE END Prototypes */
 
 #ifdef __cplusplus

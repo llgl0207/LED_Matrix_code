@@ -82,6 +82,7 @@ static uint32_t g_lastPatternTick = 0;
 static uint32_t g_lastFrameTick = 0;
 static float g_cubeAngle = 0.0f;
 static const float kCubeAngleStep = 0.1745329f;
+static uint8_t g_useSpiFrames = 1;
 
 /*
 注意，当前的显示器设计是RAW_BUFFER_CYLINDER_NUM个RAW切片，每个切片内包含两个数组，分别在各自对面，
@@ -278,9 +279,13 @@ int main(void)
   // 初始化LED缓冲区
   ledBufferInit();
   
-  g_pattern = PATTERN_CUBE;
-  ledBuildPatternFrames(g_pattern);
-  g_lastFrameTick = HAL_GetTick();
+  if(g_useSpiFrames){
+    SPI_FrameInit();
+  } else {
+    g_pattern = PATTERN_CUBE;
+    ledBuildPatternFrames(g_pattern);
+    g_lastFrameTick = HAL_GetTick();
+  }
 
   /* USER CODE END 2 */
 
@@ -288,8 +293,11 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+    if(g_useSpiFrames){
+      SPI_FramePoll();
+    }
     uint32_t now = HAL_GetTick();
-    if ((now - g_lastFrameTick) >= 50) {
+    if (!g_useSpiFrames && (now - g_lastFrameTick) >= 50) {
       g_pattern = PATTERN_CUBE;
       g_cubeAngle += kCubeAngleStep;
       if (g_cubeAngle > 6.2831852f) {
