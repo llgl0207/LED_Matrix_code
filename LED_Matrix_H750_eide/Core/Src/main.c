@@ -91,6 +91,17 @@ static const float kCubeAngleStep = 0.1745329f;
 所有RAW切片遍历完一次后，显示器其实只转过了半圈，这时就要调换RAW切片下的AB输出方向，将D和E对调，重新输出。
 此外，GPIO下的16个IO对应的是从上到下的16行，每一行里的16个灯对应的是从外到内的16列，所以数组末尾的灯是最内侧的灯。
 特别提示，当前每一个像素都是等距分布，也就是说，两个柱面会把图像拉伸。例如要显示正方形，每个半柱面的高是宽的两倍
+
+【重要补充说明】
+- 3D空间坐标系统：每个LED点由(frameIdx, ledPos, io)三元组确定
+  * frameIdx (0-63): 角度方向，对应圆周360度位置
+  * ledPos (0-15): 半径方向，0=最外侧，15=最内侧  
+  * io (0-15): 高度方向，0=顶部，15=底部
+- 3D渲染原理：通过判断每个(frameIdx, ledPos, io)对应的3D空间点(x,y,z)是否在目标几何体内
+  * x = r * cos(theta), y = r * sin(theta), 其中r = 1.0 - ledPos/15.0, theta = π * frameIdx / RAW_BUFFER_CYLINDER_NUM
+  * z = 1.0 - 2.0 * io/15.0 (高度方向，考虑高宽比kHeightToWidth=2.0)
+- 渲染模式：PATTERN_CUBE等模式通过ledBuildPatternFrames()函数实现，该函数填充fillRaw缓冲区后调用ledSwapRawBuffers()进行双缓冲交换
+- 颜色控制：原PATTERN_CUBE使用ledRainbowColor()生成动态彩色效果，静止立方体可使用固定颜色(如0xFFFFFF)
 */
 /* USER CODE END PV */
 
@@ -444,10 +455,6 @@ void StartRenderDma(void *argument){
         uint32_t now = HAL_GetTick();
     if ((now - g_lastFrameTick) >= 50) {
       g_pattern = PATTERN_CUBE;
-      g_cubeAngle += kCubeAngleStep;
-      if (g_cubeAngle > 6.2831852f) {
-        g_cubeAngle -= 6.2831852f;
-      }
       ledBuildPatternFrames(g_pattern);
       g_lastFrameTick = now;
     }
