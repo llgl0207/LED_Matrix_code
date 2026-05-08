@@ -62,6 +62,9 @@ virtualFolder:
           files:
             - path: ../Core/Src/system_stm32h7xx.c
           folders: []
+    - name: ::CMSIS
+      files: []
+      folders: []
     - name: Middlewares
       files: []
       folders:
@@ -79,9 +82,6 @@ virtualFolder:
             - path: ../Middlewares/Third_Party/FreeRTOS/Source/portable/MemMang/heap_4.c
             - path: ../Middlewares/Third_Party/FreeRTOS/Source/portable/RVDS/ARM_CM4F/port.c
           folders: []
-    - name: ::CMSIS
-      files: []
-      folders: []
 dependenceList: []
 outDir: build
 miscInfo:

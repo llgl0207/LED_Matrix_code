@@ -18,6 +18,8 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "FreeRTOS.h"
+#include "cmsis_os2.h"
 #include "dma.h"
 #include "spi.h"
 #include "tim.h"
@@ -95,6 +97,7 @@ static const float kCubeAngleStep = 0.1745329f;
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MPU_Config(void);
+void MX_FREERTOS_Init(void);
 /* USER CODE BEGIN PFP */
 /* USER CODE END PFP */
 
@@ -286,44 +289,19 @@ int main(void)
   HAL_SPI_Receive_DMA(&hspi1, spi_rx_buffer, SPI_RX_BUFFER_SIZE);
   /* USER CODE END 2 */
 
+  /* Init scheduler */
+  osKernelInitialize();  /* Call init function for freertos objects (in cmsis_os2.c) */
+  MX_FREERTOS_Init();
+
+  /* Start scheduler */
+  osKernelStart();
+
+  /* We should never get here as control is now taken by the scheduler */
+
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    uint32_t now = HAL_GetTick();
-    if ((now - g_lastFrameTick) >= 50) {
-      g_pattern = PATTERN_CUBE;
-      g_cubeAngle += kCubeAngleStep;
-      if (g_cubeAngle > 6.2831852f) {
-        g_cubeAngle -= 6.2831852f;
-      }
-      ledBuildPatternFrames(g_pattern);
-      g_lastFrameTick = now;
-    }
-
-    // 后台任务：动态加载Raw帧到DMA缓冲区
-    if (isRefreshing) {
-      // 计算需要预加载的帧索引（领先当前显示帧2*DMA_BUFFER_CYLINDER_NUM）
-      int preloadFrame = (animationFrame + 2 * DMA_BUFFER_CYLINDER_NUM) % (RAW_BUFFER_CYLINDER_NUM * 2);
-      // 转换为Raw帧索引（0-RAW_BUFFER_CYLINDER_NUM-1）
-      int rawFrameIdx = preloadFrame % RAW_BUFFER_CYLINDER_NUM;
-      // 计算目标DMA缓冲区索引
-      int dmaIdx = rawFrameIdx % DMA_BUFFER_CYLINDER_NUM;
-      
-      // 确定目标缓冲区（与当前使用的缓冲区相反）
-      memFrameDma *targetDma;
-      if (rawFrameIdx < DMA_BUFFER_CYLINDER_NUM) {
-        targetDma = &FrameDmaA[dmaIdx];
-      } else {
-        targetDma = &FrameDmaB[dmaIdx];
-      }
-      
-      memFrameRaw *currentRenderRaw = ledGetRenderRaw();
-      // 从Raw缓冲区转换到DMA缓冲区
-      ledBufferClearDma(targetDma->ledBufferDmaA);
-      ledBufferClearDma(targetDma->ledBufferDmaB);
-      ledBufferRawToDma(targetDma, &currentRenderRaw[rawFrameIdx]);
-    }
 
     // 待机状态：可以添加低功耗处理或其他任务
     HAL_Delay(10);
@@ -461,8 +439,94 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
   }
 }
 
+void StartRenderDma(void *argument){
+  for(;;){
+        uint32_t now = HAL_GetTick();
+    if ((now - g_lastFrameTick) >= 50) {
+      g_pattern = PATTERN_CUBE;
+      g_cubeAngle += kCubeAngleStep;
+      if (g_cubeAngle > 6.2831852f) {
+        g_cubeAngle -= 6.2831852f;
+      }
+      ledBuildPatternFrames(g_pattern);
+      g_lastFrameTick = now;
+    }
+
+    // 后台任务：动态加载Raw帧到DMA缓冲区
+    if (isRefreshing) {
+      // 计算需要预加载的帧索引（领先当前显示帧2*DMA_BUFFER_CYLINDER_NUM）
+      int preloadFrame = (animationFrame + 2 * DMA_BUFFER_CYLINDER_NUM) % (RAW_BUFFER_CYLINDER_NUM * 2);
+      // 转换为Raw帧索引（0-RAW_BUFFER_CYLINDER_NUM-1）
+      int rawFrameIdx = preloadFrame % RAW_BUFFER_CYLINDER_NUM;
+      // 计算目标DMA缓冲区索引
+      int dmaIdx = rawFrameIdx % DMA_BUFFER_CYLINDER_NUM;
+      
+      // 确定目标缓冲区（与当前使用的缓冲区相反）
+      memFrameDma *targetDma;
+      if (rawFrameIdx < DMA_BUFFER_CYLINDER_NUM) {
+        targetDma = &FrameDmaA[dmaIdx];
+      } else {
+        targetDma = &FrameDmaB[dmaIdx];
+      }
+      
+      memFrameRaw *currentRenderRaw = ledGetRenderRaw();
+      // 从Raw缓冲区转换到DMA缓冲区
+      ledBufferClearDma(targetDma->ledBufferDmaA);
+      ledBufferClearDma(targetDma->ledBufferDmaB);
+      ledBufferRawToDma(targetDma, &currentRenderRaw[rawFrameIdx]);
+    }
+    osDelay(10);
+  }
+}
+/* USER CODE END 4 */
+
+ /* MPU Configuration */
+
+void MPU_Config(void)
+{
+  MPU_Region_InitTypeDef MPU_InitStruct = {0};
+
+  /* Disables the MPU */
+  HAL_MPU_Disable();
+
+  /** Initializes and configures the Region and the memory to be protected
+  */
+  MPU_InitStruct.Enable = MPU_REGION_ENABLE;
+  MPU_InitStruct.Number = MPU_REGION_NUMBER0;
+  MPU_InitStruct.BaseAddress = 0x0;
+  MPU_InitStruct.Size = MPU_REGION_SIZE_4GB;
+  MPU_InitStruct.SubRegionDisable = 0x87;
+  MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL0;
+  MPU_InitStruct.AccessPermission = MPU_REGION_NO_ACCESS;
+  MPU_InitStruct.DisableExec = MPU_INSTRUCTION_ACCESS_DISABLE;
+  MPU_InitStruct.IsShareable = MPU_ACCESS_SHAREABLE;
+  MPU_InitStruct.IsCacheable = MPU_ACCESS_NOT_CACHEABLE;
+  MPU_InitStruct.IsBufferable = MPU_ACCESS_NOT_BUFFERABLE;
+
+  HAL_MPU_ConfigRegion(&MPU_InitStruct);
+  /* Enables the MPU */
+  HAL_MPU_Enable(MPU_PRIVILEGED_DEFAULT);
+
+}
+
+/**
+  * @brief  Period elapsed callback in non blocking mode
+  * @note   This function is called  when TIM1 interrupt took place, inside
+  * HAL_TIM_IRQHandler(). It makes a direct call to HAL_IncTick() to increment
+  * a global variable "uwTick" used as application time base.
+  * @param  htim : TIM handle
+  * @retval None
+  */
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
+  /* USER CODE BEGIN Callback 0 */
+
+  /* USER CODE END Callback 0 */
+  if (htim->Instance == TIM1)
+  {
+    HAL_IncTick();
+  }
+  /* USER CODE BEGIN Callback 1 */
   if (htim->Instance == TIM2)
   {
     // 检查是否正在刷新动画
@@ -500,37 +564,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
       }
     }
   }
-}
-
-/* USER CODE END 4 */
-
- /* MPU Configuration */
-
-void MPU_Config(void)
-{
-  MPU_Region_InitTypeDef MPU_InitStruct = {0};
-
-  /* Disables the MPU */
-  HAL_MPU_Disable();
-
-  /** Initializes and configures the Region and the memory to be protected
-  */
-  MPU_InitStruct.Enable = MPU_REGION_ENABLE;
-  MPU_InitStruct.Number = MPU_REGION_NUMBER0;
-  MPU_InitStruct.BaseAddress = 0x0;
-  MPU_InitStruct.Size = MPU_REGION_SIZE_4GB;
-  MPU_InitStruct.SubRegionDisable = 0x87;
-  MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL0;
-  MPU_InitStruct.AccessPermission = MPU_REGION_NO_ACCESS;
-  MPU_InitStruct.DisableExec = MPU_INSTRUCTION_ACCESS_DISABLE;
-  MPU_InitStruct.IsShareable = MPU_ACCESS_SHAREABLE;
-  MPU_InitStruct.IsCacheable = MPU_ACCESS_NOT_CACHEABLE;
-  MPU_InitStruct.IsBufferable = MPU_ACCESS_NOT_BUFFERABLE;
-
-  HAL_MPU_ConfigRegion(&MPU_InitStruct);
-  /* Enables the MPU */
-  HAL_MPU_Enable(MPU_PRIVILEGED_DEFAULT);
-
+  /* USER CODE END Callback 1 */
 }
 
 /**
