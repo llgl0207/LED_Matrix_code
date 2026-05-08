@@ -285,8 +285,8 @@ int main(void)
   ledBuildPatternFrames(g_pattern);
   g_lastFrameTick = HAL_GetTick();
 
-  //HAL_SPI_Receive_IT(&hspi1, &spi_rx_buffer[0], 1);
-  HAL_SPI_Receive_DMA(&hspi1, spi_rx_buffer, SPI_RX_BUFFER_SIZE);
+  HAL_SPI_Receive_IT(&hspi1, (uint8_t*)&spi_rx_buffer[spi_rx_index], 1);
+  //HAL_SPI_Receive_DMA(&hspi1, spi_rx_buffer, SPI_RX_BUFFER_SIZE);
   /* USER CODE END 2 */
 
   /* Init scheduler */
@@ -476,6 +476,12 @@ void StartRenderDma(void *argument){
       ledBufferRawToDma(targetDma, &currentRenderRaw[rawFrameIdx]);
     }
     osDelay(10);
+  }
+}
+
+void StartUiLogic(void *argument){
+  for(;;){
+    osDelay(100);
   }
 }
 /* USER CODE END 4 */

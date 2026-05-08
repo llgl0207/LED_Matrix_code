@@ -62,6 +62,13 @@ const osThreadAttr_t renderDma_attributes = {
   .stack_size = 128 * 4,
   .priority = (osPriority_t) osPriorityRealtime,
 };
+/* Definitions for uiLogic */
+osThreadId_t uiLogicHandle;
+const osThreadAttr_t uiLogic_attributes = {
+  .name = "uiLogic",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityLow,
+};
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
@@ -70,6 +77,7 @@ const osThreadAttr_t renderDma_attributes = {
 
 void StartDefaultTask(void *argument);
 void StartRenderDma(void *argument);
+void StartUiLogic(void *argument);
 
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
 
@@ -105,6 +113,9 @@ void MX_FREERTOS_Init(void) {
 
   /* creation of renderDma */
   renderDmaHandle = osThreadNew(StartRenderDma, NULL, &renderDma_attributes);
+
+  /* creation of uiLogic */
+  uiLogicHandle = osThreadNew(StartUiLogic, NULL, &uiLogic_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -150,6 +161,24 @@ __weak void StartRenderDma(void *argument)
     osDelay(1);
   }
   /* USER CODE END StartRenderDma */
+}
+
+/* USER CODE BEGIN Header_StartUiLogic */
+/**
+* @brief Function implementing the uiLogic thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartUiLogic */
+__weak void StartUiLogic(void *argument)
+{
+  /* USER CODE BEGIN StartUiLogic */
+  /* Infinite loop */
+  for(;;)
+  {
+    osDelay(1);
+  }
+  /* USER CODE END StartUiLogic */
 }
 
 /* Private application code --------------------------------------------------*/
