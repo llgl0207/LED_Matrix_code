@@ -18,6 +18,8 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "FreeRTOS.h"
+#include "cmsis_os2.h"
 #include "dma.h"
 #include "spi.h"
 #include "tim.h"
@@ -55,7 +57,7 @@ uint8_t refreshFlag = 0;        // 刷新标志，中断触发时设置为1
 uint8_t isRefreshing = 0;       // 正在刷新中标志
 uint32_t lastIrqTime = 0;       // 上次中断触发时间戳（用于20ms屏蔽）
 #define DEBOUNCE_TIME 20         // 触发后屏蔽时间（毫秒）
-uint8_t animationFrame = 0;     // 动画帧计数器，用于逐帧显示
+uint8_t scanPosition = 0;       // 扫描位置计数器，用于LED矩阵逐列扫描显示
 uint32_t lastTriggerTime = 0;   // 上次有效中断触发时间（用于计算间隔）
 uint32_t irqInterval = 1000;    // 两次中断的时间间隔（毫秒），初始1秒
 #define TIM2_CLOCK 1000000       // TIM2经过PSC后的时钟频率（1MHz）
@@ -90,17 +92,41 @@ static const float kCubeAngleStep = 0.1745329f;
 此外，GPIO下的16个IO对应的是从上到下的16行，每一行里的16个灯对应的是从外到内的16列，所以数组末尾的灯是最内侧的灯。
 特别提示，当前每一个像素都是等距分布，也就是说，两个柱面会把图像拉伸。例如要显示正方形，每个半柱面的高是宽的两倍
 */
+
+uint16_t renderPositionIdx = 0;
+uint8_t renderPhase = 0;
+uint16_t renderFrameRawIdx = 0;
+uint16_t renderFrameDmaIdx = 0;
+memFrameDma (*FrameDmaRendering)[DMA_BUFFER_CYLINDER_NUM];
+memFrameDma (*FrameDmaBuffering)[DMA_BUFFER_CYLINDER_NUM];
+uint16_t FrameDmaRenderingIdx = 0;
+uint16_t FrameDmaBufferingIdx = 0;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MPU_Config(void);
+void MX_FREERTOS_Init(void);
 /* USER CODE BEGIN PFP */
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-
+void updateRenderIdx(){
+      renderPhase = (renderPositionIdx < RAW_BUFFER_CYLINDER_NUM) ? 0 : 1;
+      // 计算当前扫描位置在阶段内的索引（0-RAW_BUFFER_CYLINDER_NUM-1循环）
+      renderFrameRawIdx = renderPositionIdx % RAW_BUFFER_CYLINDER_NUM;
+      // 根据扫描索引选择缓冲区（使用取模实现循环）
+      renderFrameDmaIdx = renderFrameRawIdx % DMA_BUFFER_CYLINDER_NUM;
+      FrameDmaRendering = (renderFrameRawIdx / DMA_BUFFER_CYLINDER_NUM)%2 == 0 ? &FrameDmaA : &FrameDmaB;
+      FrameDmaBuffering = (renderFrameRawIdx / DMA_BUFFER_CYLINDER_NUM)%2 == 0 ? &FrameDmaB : &FrameDmaA;
+      FrameDmaRenderingIdx = (renderFrameRawIdx - renderFrameRawIdx % DMA_BUFFER_CYLINDER_NUM);
+      FrameDmaBufferingIdx = (renderFrameRawIdx - renderFrameRawIdx % DMA_BUFFER_CYLINDER_NUM + DMA_BUFFER_CYLINDER_NUM);
+      if(FrameDmaBufferingIdx >= RAW_BUFFER_CYLINDER_NUM){
+        FrameDmaBufferingIdx = 0;
+      }
+}
 static uint32_t ledRainbowColor(float phase){
   float r = sinf(phase) * 0.5f + 0.5f;
   float g = sinf(phase + 2.0943951f) * 0.5f + 0.5f;
@@ -282,49 +308,21 @@ int main(void)
   ledBuildPatternFrames(g_pattern);
   g_lastFrameTick = HAL_GetTick();
 
-  //HAL_SPI_Receive_IT(&hspi1, &spi_rx_buffer[0], 1);
-  HAL_SPI_Receive_DMA(&hspi1, spi_rx_buffer, SPI_RX_BUFFER_SIZE);
   /* USER CODE END 2 */
+
+  /* Init scheduler */
+  osKernelInitialize();  /* Call init function for freertos objects (in cmsis_os2.c) */
+  MX_FREERTOS_Init();
+
+  /* Start scheduler */
+  osKernelStart();
+
+  /* We should never get here as control is now taken by the scheduler */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    uint32_t now = HAL_GetTick();
-    if ((now - g_lastFrameTick) >= 50) {
-      g_pattern = PATTERN_CUBE;
-      g_cubeAngle += kCubeAngleStep;
-      if (g_cubeAngle > 6.2831852f) {
-        g_cubeAngle -= 6.2831852f;
-      }
-      ledBuildPatternFrames(g_pattern);
-      g_lastFrameTick = now;
-    }
-
-    // 后台任务：动态加载Raw帧到DMA缓冲区
-    if (isRefreshing) {
-      // 计算需要预加载的帧索引（领先当前显示帧2*DMA_BUFFER_CYLINDER_NUM）
-      int preloadFrame = (animationFrame + 2 * DMA_BUFFER_CYLINDER_NUM) % (RAW_BUFFER_CYLINDER_NUM * 2);
-      // 转换为Raw帧索引（0-RAW_BUFFER_CYLINDER_NUM-1）
-      int rawFrameIdx = preloadFrame % RAW_BUFFER_CYLINDER_NUM;
-      // 计算目标DMA缓冲区索引
-      int dmaIdx = rawFrameIdx % DMA_BUFFER_CYLINDER_NUM;
-      
-      // 确定目标缓冲区（与当前使用的缓冲区相反）
-      memFrameDma *targetDma;
-      if (rawFrameIdx < DMA_BUFFER_CYLINDER_NUM) {
-        targetDma = &FrameDmaA[dmaIdx];
-      } else {
-        targetDma = &FrameDmaB[dmaIdx];
-      }
-      
-      memFrameRaw *currentRenderRaw = ledGetRenderRaw();
-      // 从Raw缓冲区转换到DMA缓冲区
-      ledBufferClearDma(targetDma->ledBufferDmaA);
-      ledBufferClearDma(targetDma->ledBufferDmaB);
-      ledBufferRawToDma(targetDma, &currentRenderRaw[rawFrameIdx]);
-    }
-
     // 待机状态：可以添加低功耗处理或其他任务
     HAL_Delay(10);
     /* USER CODE END WHILE */
@@ -395,7 +393,7 @@ void SystemClock_Config(void)
 
 /* USER CODE BEGIN 4 */
 
-void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)//用于红外编码定位
 {
   if (GPIO_Pin == IR_IT_Pin)
   {
@@ -454,54 +452,37 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
       // 更新TIM2的ARR值
       __HAL_TIM_SET_AUTORELOAD(&htim2, newArr);
       
-      // 重置动画状态，立即重新开始渲染
-      animationFrame = 0;
+      // 重置扫描位置，立即重新开始扫描显示
+      scanPosition = 0;
       isRefreshing = 1;
     }
   }
 }
 
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
-{
-  if (htim->Instance == TIM2)
-  {
-    // 检查是否正在刷新动画
-    if (isRefreshing)
-    {
-      // 计算当前阶段（0=前半圈AB模式, 1=后半圈BA模式）
-      uint8_t phase = (animationFrame < RAW_BUFFER_CYLINDER_NUM) ? 0 : 1;
-      // 计算当前帧在阶段内的索引（0-RAW_BUFFER_CYLINDER_NUM-1循环）
-      int frameIdx = animationFrame % RAW_BUFFER_CYLINDER_NUM;
-      
-      // 根据帧索引选择缓冲区（使用取模实现循环）
-      memFrameDma *currentFrame;
-      int dmaIdx = frameIdx % DMA_BUFFER_CYLINDER_NUM;
-      if (frameIdx < DMA_BUFFER_CYLINDER_NUM) {
-        // 使用FrameDmaA
-        currentFrame = &FrameDmaA[dmaIdx];
-      } else {
-        // 使用FrameDmaB
-        currentFrame = &FrameDmaB[dmaIdx];
+void StartBufferDma(void *argument){
+  for(;;){
+        uint32_t now = HAL_GetTick();
+    if ((now - g_lastFrameTick) >= 50) {
+      g_pattern = PATTERN_CUBE;
+      g_cubeAngle += kCubeAngleStep;
+      if (g_cubeAngle > 6.2831852f) {
+        g_cubeAngle -= 6.2831852f;
       }
-      
-      // 输出模式：前半圈AB模式，后半圈BA模式
-      uint8_t outputMode = phase;
-      ledPushGPIO(currentFrame, outputMode);
-      
-      // 更新动画帧计数器
-      animationFrame++;
-      
-      // 检查是否播放完毕（2*RAW_BUFFER_CYLINDER_NUM帧完成一圈）
-      if (animationFrame >= RAW_BUFFER_CYLINDER_NUM * 2)
-      {
-        // 刷新完成
-        isRefreshing = 0;
-        animationFrame = 0;
+      ledBuildPatternFrames(g_pattern);
+      g_lastFrameTick = now;
+    }
+
+    // 后台任务：动态加载Raw帧到DMA缓冲区
+    static uint16_t lastFrameDmaBufferingIdx = 0;
+    if(lastFrameDmaBufferingIdx != FrameDmaBufferingIdx){
+      // 只有当缓冲区索引发生变化时才更新DMA缓冲区，避免重复加载同一帧
+      for (int i = 0; i < DMA_BUFFER_CYLINDER_NUM; i++) {
+        ledBufferRawToDma(&(*FrameDmaBuffering)[i], &ledGetRenderRaw()[FrameDmaBufferingIdx + i]);
       }
+      lastFrameDmaBufferingIdx = FrameDmaBufferingIdx;
     }
   }
 }
-
 /* USER CODE END 4 */
 
  /* MPU Configuration */
@@ -531,6 +512,47 @@ void MPU_Config(void)
   /* Enables the MPU */
   HAL_MPU_Enable(MPU_PRIVILEGED_DEFAULT);
 
+}
+
+/**
+  * @brief  Period elapsed callback in non blocking mode
+  * @note   This function is called  when TIM1 interrupt took place, inside
+  * HAL_TIM_IRQHandler(). It makes a direct call to HAL_IncTick() to increment
+  * a global variable "uwTick" used as application time base.
+  * @param  htim : TIM handle
+  * @retval None
+  */
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+  /* USER CODE BEGIN Callback 0 */
+
+  /* USER CODE END Callback 0 */
+  if (htim->Instance == TIM1)
+  {
+    HAL_IncTick();
+  }
+  /* USER CODE BEGIN Callback 1 */
+  if (htim->Instance == TIM2)
+  {
+    // 检查是否正在刷新动画
+    if (isRefreshing)
+    {
+      // 输出：前半圈AB模式，后半圈BA模式
+      uint8_t outputMode = renderPhase;
+      ledPushGPIO(FrameDmaRendering[renderFrameDmaIdx], outputMode);
+      // 更新扫描位置计数器
+      scanPosition++;
+      updateRenderIdx();
+      // 检查是否扫描完毕（2*RAW_BUFFER_CYLINDER_NUM个位置完成一圈扫描）
+      if (scanPosition >= RAW_BUFFER_CYLINDER_NUM * 2)
+      {
+        // 扫描完成
+        isRefreshing = 0;
+        scanPosition = 0;
+      }
+    }
+  }
+  /* USER CODE END Callback 1 */
 }
 
 /**

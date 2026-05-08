@@ -49,26 +49,26 @@ extern "C" void app_main(void)
 {
     spi_master_init();
 
-    std::array<uint8_t, 4> tx_data = {0xA5, 0x5A, 0x01, 0x00};
-    std::array<uint8_t, 4> rx_data = {0};
+    std::array<uint16_t, 2> tx_data = {0xA55A, 0x0100};
+    std::array<uint16_t, 2> rx_data = {0};
     spi_transaction_t t;
     std::memset(&t, 0, sizeof(t));
-    t.length = 32;
+    t.length = 16;
     t.tx_buffer = tx_data.data();
     t.rx_buffer = rx_data.data();
 
     int counter = 0;
     while (1) {
-        tx_data[3] = static_cast<uint8_t>(counter);
+        tx_data[1] = 0x0100 | (static_cast<uint16_t>(counter) & 0xFF);
         rx_data.fill(0);
 
         esp_err_t ret = spi_device_transmit(spi_handle, &t);
         if (ret != ESP_OK) {
             ESP_LOGE(TAG, "SPI transmit failed: %s", esp_err_to_name(ret));
         } else {
-            ESP_LOGI(TAG, "TX=%02X %02X %02X %02X  RX=%02X %02X %02X %02X",
-                     tx_data[0], tx_data[1], tx_data[2], tx_data[3],
-                     rx_data[0], rx_data[1], rx_data[2], rx_data[3]);
+            ESP_LOGI(TAG, "TX=%04X %04X  RX=%04X %04X",
+                     tx_data[0], tx_data[1],
+                     rx_data[0], rx_data[1]);
         }
 
         counter++;
