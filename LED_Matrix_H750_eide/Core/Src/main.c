@@ -63,6 +63,16 @@ uint32_t irqInterval = 1000;    // 两次中断的时间间隔（毫秒），初
 #define TIM2_CLOCK 1000000       // TIM2经过PSC后的时钟频率（1MHz）
 #define FRAME_COUNT (RAW_BUFFER_CYLINDER_NUM * 2)  // 动画总帧数（64帧完成一圈）
 
+#define SPI_SLAVE_FRAME_COUNT 16
+static uint16_t spiSlaveRxBuf[SPI_SLAVE_FRAME_COUNT];
+static uint16_t spiSlaveTxBuf[SPI_SLAVE_FRAME_COUNT] = {
+  0xB001, 0xB002, 0xB003, 0xB004,
+  0xB005, 0xB006, 0xB007, 0xB008,
+  0xB009, 0xB00A, 0xB00B, 0xB00C,
+  0xB00D, 0xB00E, 0xB00F, 0xB010
+};
+static volatile uint8_t spiTransferComplete = 0;
+
 // 用于计算平均值的历史数据
 #define SAMPLE_COUNT 10          // 取前50次的平均值
 uint32_t intervalHistory[50]; // 存储最近50次中断间隔
@@ -109,6 +119,7 @@ static const float kCubeAngleStep = 0.1745329f;
 void SystemClock_Config(void);
 static void MPU_Config(void);
 void MX_FREERTOS_Init(void);
+static void StartSpiSlaveDma(void);
 /* USER CODE BEGIN PFP */
 /* USER CODE END PFP */
 
@@ -292,12 +303,11 @@ int main(void)
   // 初始化LED缓冲区
   ledBufferInit();
   
-  g_pattern = PATTERN_CUBE;
-  ledBuildPatternFrames(g_pattern);
-  g_lastFrameTick = HAL_GetTick();
+  // g_pattern = PATTERN_CUBE;
+  // ledBuildPatternFrames(g_pattern);
+  // g_lastFrameTick = HAL_GetTick();
 
-  HAL_SPI_Receive_IT(&hspi1, (uint8_t*)&spi_rx_buffer[spi_rx_index], 1);
-  //HAL_SPI_Receive_DMA(&hspi1, spi_rx_buffer, SPI_RX_BUFFER_SIZE);
+  StartSpiSlaveDma();
   /* USER CODE END 2 */
 
   /* Init scheduler */
@@ -452,12 +462,12 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 
 void StartRenderDma(void *argument){
   for(;;){
-        uint32_t now = HAL_GetTick();
-    if ((now - g_lastFrameTick) >= 50) {
-      g_pattern = PATTERN_CUBE;
-      ledBuildPatternFrames(g_pattern);
-      g_lastFrameTick = now;
-    }
+    //     uint32_t now = HAL_GetTick();
+    // if ((now - g_lastFrameTick) >= 50) {
+    //   g_pattern = PATTERN_CUBE;
+    //   ledBuildPatternFrames(g_pattern);
+    //   g_lastFrameTick = now;
+    // }
 
     // 后台任务：动态加载Raw帧到DMA缓冲区
     if (isRefreshing) {
@@ -488,7 +498,30 @@ void StartRenderDma(void *argument){
 
 void StartUiLogic(void *argument){
   for(;;){
+    if (spiTransferComplete)
+    {
+      spiTransferComplete = 0;
+      /* 处理接收到的 SPI 数据 */
+      /* 例如：对比 spiSlaveRxBuf 内容、触发状态机、写入日志等 */
+      StartSpiSlaveDma();
+    }
     osDelay(100);
+  }
+}
+
+static void StartSpiSlaveDma(void)
+{
+  if (HAL_SPI_TransmitReceive_DMA(&hspi1, (uint8_t *)spiSlaveTxBuf, (uint8_t *)spiSlaveRxBuf, SPI_SLAVE_FRAME_COUNT) != HAL_OK)
+  {
+    Error_Handler();
+  }
+}
+
+void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef *hspi)
+{
+  if (hspi->Instance == SPI1)
+  {
+    spiTransferComplete = 1;
   }
 }
 /* USER CODE END 4 */
