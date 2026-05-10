@@ -296,11 +296,11 @@ int main(void)
   HAL_TIM_Base_Start_IT(&htim2);
   
   // 使能定时器DMA请求（必须）
-  __HAL_TIM_ENABLE_DMA(&htim3, TIM_DMA_UPDATE);
-  __HAL_TIM_ENABLE_DMA(&htim8, TIM_DMA_UPDATE);
+  //__HAL_TIM_ENABLE_DMA(&htim3, TIM_DMA_UPDATE); // [实验1] 测试TIM3 DMA请求是否干扰SPI
+  //__HAL_TIM_ENABLE_DMA(&htim8, TIM_DMA_UPDATE); // [实验1]
   
   // 初始化LED缓冲区
-  //ledBufferInit();
+  ledBufferInit();
   
   g_pattern = PATTERN_CUBE;
   //ledBuildPatternFrames(g_pattern);
@@ -338,7 +338,7 @@ int main(void)
     }
     static int t = 0;
     if(t!=0){
-      //ledBufferInit();
+      ledBufferInit();
     }
     /* USER CODE END WHILE */
 
