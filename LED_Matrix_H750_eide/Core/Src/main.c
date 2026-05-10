@@ -18,11 +18,11 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
-#include "FreeRTOS.h"
-#include "cmsis_os2.h"
+// #include "FreeRTOS.h"
+// #include "cmsis_os2.h"
 #include "dma.h"
 #include "spi.h"
-#include "tim.h"
+ #include "tim.h"
 #include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
@@ -41,7 +41,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
+#define SPI_SLAVE_FRAME_COUNT 16
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -52,6 +52,15 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
+static uint16_t spiSlaveRxBuf[SPI_SLAVE_FRAME_COUNT];
+static uint16_t spiSlaveTxBuf[SPI_SLAVE_FRAME_COUNT] = {
+  0xB001, 0xB002, 0xB003, 0xB004,
+  0xB005, 0xB006, 0xB007, 0xB008,
+  0xB009, 0xB00A, 0xB00B, 0xB00C,
+  0xB00D, 0xB00E, 0xB00F, 0xB010
+};
+static volatile uint8_t spiTransferComplete = 0;
+
 uint8_t currentFrame = 0;       // 当前显示的帧索引 (0-119)
 uint8_t refreshFlag = 0;        // 刷新标志，中断触发时设置为1
 uint8_t isRefreshing = 0;       // 正在刷新中标志
@@ -108,8 +117,9 @@ static const float kCubeAngleStep = 0.1745329f;
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MPU_Config(void);
-void MX_FREERTOS_Init(void);
+// void MX_FREERTOS_Init(void);
 /* USER CODE BEGIN PFP */
+static void StartSpiSlaveDma(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -290,22 +300,23 @@ int main(void)
   __HAL_TIM_ENABLE_DMA(&htim8, TIM_DMA_UPDATE);
   
   // 初始化LED缓冲区
-  ledBufferInit();
+  //ledBufferInit();
   
   g_pattern = PATTERN_CUBE;
-  ledBuildPatternFrames(g_pattern);
+  //ledBuildPatternFrames(g_pattern);
   g_lastFrameTick = HAL_GetTick();
 
-  HAL_SPI_Receive_IT(&hspi1, (uint8_t*)&spi_rx_buffer[spi_rx_index], 1);
+  //HAL_SPI_Receive_IT(&hspi1, (uint8_t*)&spi_rx_buffer[spi_rx_index], 1);
   //HAL_SPI_Receive_DMA(&hspi1, spi_rx_buffer, SPI_RX_BUFFER_SIZE);
+    StartSpiSlaveDma();
   /* USER CODE END 2 */
 
   /* Init scheduler */
-  osKernelInitialize();  /* Call init function for freertos objects (in cmsis_os2.c) */
-  MX_FREERTOS_Init();
+  //  osKernelInitialize();  /* Call init function for freertos objects (in cmsis_os2.c) */
+  //  MX_FREERTOS_Init();
 
   /* Start scheduler */
-  osKernelStart();
+   //osKernelStart();
 
   /* We should never get here as control is now taken by the scheduler */
 
@@ -313,9 +324,22 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-
-    // 待机状态：可以添加低功耗处理或其他任务
-    HAL_Delay(10);
+    static int b =0;
+    b++;
+     if (spiTransferComplete)
+    {
+      static int c = 0;
+      c++;
+      spiTransferComplete = 0;
+      /* 这里可以加入对接收到数据的验证/处理逻辑 */
+      /* 例如：比较预期值、触发 LED、向调试串口输出等 */
+      /* 重新开启下一次 SPI DMA 接收 */
+      StartSpiSlaveDma();
+    }
+    static int t = 0;
+    if(t!=0){
+      //ledBufferInit();
+    }
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -451,44 +475,69 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 }
 
 void StartRenderDma(void *argument){
-  for(;;){
-        uint32_t now = HAL_GetTick();
-    if ((now - g_lastFrameTick) >= 50) {
-      g_pattern = PATTERN_CUBE;
-      ledBuildPatternFrames(g_pattern);
-      g_lastFrameTick = now;
-    }
+   for(;;){
+  //       uint32_t now = HAL_GetTick();
+  //   if ((now - g_lastFrameTick) >= 50) {
+  //     g_pattern = PATTERN_CUBE;
+  //     ledBuildPatternFrames(g_pattern);
+  //     g_lastFrameTick = now;
+  //   }
 
-    // 后台任务：动态加载Raw帧到DMA缓冲区
-    if (isRefreshing) {
-      // 计算需要预加载的帧索引（领先当前显示帧2*DMA_BUFFER_CYLINDER_NUM）
-      int preloadFrame = (animationFrame + 2 * DMA_BUFFER_CYLINDER_NUM) % (RAW_BUFFER_CYLINDER_NUM * 2);
-      // 转换为Raw帧索引（0-RAW_BUFFER_CYLINDER_NUM-1）
-      int rawFrameIdx = preloadFrame % RAW_BUFFER_CYLINDER_NUM;
-      // 计算目标DMA缓冲区索引
-      int dmaIdx = rawFrameIdx % DMA_BUFFER_CYLINDER_NUM;
+  //   // 后台任务：动态加载Raw帧到DMA缓冲区
+  //   if (isRefreshing) {
+  //     // 计算需要预加载的帧索引（领先当前显示帧2*DMA_BUFFER_CYLINDER_NUM）
+  //     int preloadFrame = (animationFrame + 2 * DMA_BUFFER_CYLINDER_NUM) % (RAW_BUFFER_CYLINDER_NUM * 2);
+  //     // 转换为Raw帧索引（0-RAW_BUFFER_CYLINDER_NUM-1）
+  //     int rawFrameIdx = preloadFrame % RAW_BUFFER_CYLINDER_NUM;
+  //     // 计算目标DMA缓冲区索引
+  //     int dmaIdx = rawFrameIdx % DMA_BUFFER_CYLINDER_NUM;
       
-      // 确定目标缓冲区（与当前使用的缓冲区相反）
-      memFrameDma *targetDma;
-      if (rawFrameIdx < DMA_BUFFER_CYLINDER_NUM) {
-        targetDma = &FrameDmaA[dmaIdx];
-      } else {
-        targetDma = &FrameDmaB[dmaIdx];
-      }
+  //     // 确定目标缓冲区（与当前使用的缓冲区相反）
+  //     memFrameDma *targetDma;
+  //     if (rawFrameIdx < DMA_BUFFER_CYLINDER_NUM) {
+  //       targetDma = &FrameDmaA[dmaIdx];
+  //     } else {
+  //       targetDma = &FrameDmaB[dmaIdx];
+  //     }
       
-      memFrameRaw *currentRenderRaw = ledGetRenderRaw();
-      // 从Raw缓冲区转换到DMA缓冲区
-      ledBufferClearDma(targetDma->ledBufferDmaA);
-      ledBufferClearDma(targetDma->ledBufferDmaB);
-      ledBufferRawToDma(targetDma, &currentRenderRaw[rawFrameIdx]);
-    }
-    osDelay(10);
-  }
+  //     memFrameRaw *currentRenderRaw = ledGetRenderRaw();
+  //     // 从Raw缓冲区转换到DMA缓冲区
+  //     ledBufferClearDma(targetDma->ledBufferDmaA);
+  //     ledBufferClearDma(targetDma->ledBufferDmaB);
+  //     ledBufferRawToDma(targetDma, &currentRenderRaw[rawFrameIdx]);
+  //   }
+  //   osDelay(10);
+   }
 }
 
 void StartUiLogic(void *argument){
   for(;;){
-    osDelay(100);
+    static int a = 0;
+    a++;
+     if (spiTransferComplete)
+    {
+      spiTransferComplete = 0;
+      /* 这里可以加入对接收到数据的验证/处理逻辑 */
+      /* 例如：比较预期值、触发 LED、向调试串口输出等 */
+      /* 重新开启下一次 SPI DMA 接收 */
+      StartSpiSlaveDma();
+    }
+  }
+}
+
+static void StartSpiSlaveDma(void)
+{
+  if (HAL_SPI_TransmitReceive_DMA(&hspi1, (uint8_t *)spiSlaveTxBuf, (uint8_t *)spiSlaveRxBuf, SPI_SLAVE_FRAME_COUNT) != HAL_OK)
+  {
+    Error_Handler();
+  }
+}
+
+void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef *hspi)
+{
+  if (hspi->Instance == SPI1)
+  {
+    spiTransferComplete = 1;
   }
 }
 /* USER CODE END 4 */
@@ -540,43 +589,43 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
     HAL_IncTick();
   }
   /* USER CODE BEGIN Callback 1 */
-  if (htim->Instance == TIM2)
-  {
-    // 检查是否正在刷新动画
-    if (isRefreshing)
-    {
-      // 计算当前阶段（0=前半圈AB模式, 1=后半圈BA模式）
-      uint8_t phase = (animationFrame < RAW_BUFFER_CYLINDER_NUM) ? 0 : 1;
-      // 计算当前帧在阶段内的索引（0-RAW_BUFFER_CYLINDER_NUM-1循环）
-      int frameIdx = animationFrame % RAW_BUFFER_CYLINDER_NUM;
+  // if (htim->Instance == TIM2)
+  // {
+  //   // 检查是否正在刷新动画
+  //   if (isRefreshing)
+  //   {
+  //     // 计算当前阶段（0=前半圈AB模式, 1=后半圈BA模式）
+  //     uint8_t phase = (animationFrame < RAW_BUFFER_CYLINDER_NUM) ? 0 : 1;
+  //     // 计算当前帧在阶段内的索引（0-RAW_BUFFER_CYLINDER_NUM-1循环）
+  //     int frameIdx = animationFrame % RAW_BUFFER_CYLINDER_NUM;
       
-      // 根据帧索引选择缓冲区（使用取模实现循环）
-      memFrameDma *currentFrame;
-      int dmaIdx = frameIdx % DMA_BUFFER_CYLINDER_NUM;
-      if (frameIdx < DMA_BUFFER_CYLINDER_NUM) {
-        // 使用FrameDmaA
-        currentFrame = &FrameDmaA[dmaIdx];
-      } else {
-        // 使用FrameDmaB
-        currentFrame = &FrameDmaB[dmaIdx];
-      }
+  //     // 根据帧索引选择缓冲区（使用取模实现循环）
+  //     memFrameDma *currentFrame;
+  //     int dmaIdx = frameIdx % DMA_BUFFER_CYLINDER_NUM;
+  //     if (frameIdx < DMA_BUFFER_CYLINDER_NUM) {
+  //       // 使用FrameDmaA
+  //       currentFrame = &FrameDmaA[dmaIdx];
+  //     } else {
+  //       // 使用FrameDmaB
+  //       currentFrame = &FrameDmaB[dmaIdx];
+  //     }
       
-      // 输出模式：前半圈AB模式，后半圈BA模式
-      uint8_t outputMode = phase;
-      ledPushGPIO(currentFrame, outputMode);
+  //     // 输出模式：前半圈AB模式，后半圈BA模式
+  //     uint8_t outputMode = phase;
+  //     ledPushGPIO(currentFrame, outputMode);
       
-      // 更新动画帧计数器
-      animationFrame++;
+  //     // 更新动画帧计数器
+  //     animationFrame++;
       
-      // 检查是否播放完毕（2*RAW_BUFFER_CYLINDER_NUM帧完成一圈）
-      if (animationFrame >= RAW_BUFFER_CYLINDER_NUM * 2)
-      {
-        // 刷新完成
-        isRefreshing = 0;
-        animationFrame = 0;
-      }
-    }
-  }
+  //     // 检查是否播放完毕（2*RAW_BUFFER_CYLINDER_NUM帧完成一圈）
+  //     if (animationFrame >= RAW_BUFFER_CYLINDER_NUM * 2)
+  //     {
+  //       // 刷新完成
+  //       isRefreshing = 0;
+  //       animationFrame = 0;
+  //     }
+  //   }
+  // }
   /* USER CODE END Callback 1 */
 }
 

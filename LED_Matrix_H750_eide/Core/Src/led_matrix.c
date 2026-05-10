@@ -17,7 +17,7 @@
 static memFrameRaw FrameRawBuffers[2][RAW_BUFFER_CYLINDER_NUM];
 static uint8_t g_renderRawIndex = 0;
 static uint8_t g_fillRawIndex = 1;
-__attribute__((section(".dma_d2"))) memFrameDma FrameDmaA[DMA_BUFFER_CYLINDER_NUM];
+memFrameDma FrameDmaA[DMA_BUFFER_CYLINDER_NUM];
 memFrameDma FrameDmaB[DMA_BUFFER_CYLINDER_NUM];
 
 static inline void ledWriteDmaBits(uint16_t bufferDma[ONE_BUS_LED_NUM][24*4], int ledSeq, int ioSeq, uint32_t color){
