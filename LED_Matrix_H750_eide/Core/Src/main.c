@@ -72,6 +72,9 @@ static uint16_t spiSlaveTxBuf[SPI_SLAVE_FRAME_COUNT] = {
   0xB00D, 0xB00E, 0xB00F, 0xB010
 };
 static volatile uint8_t spiTransferComplete = 0;
+static volatile uint8_t spiDmaStarted = 0;
+static volatile uint8_t spiDmaComplete = 0;
+static volatile uint8_t spiDmaError = 0;
 
 // 用于计算平均值的历史数据
 #define SAMPLE_COUNT 10          // 取前50次的平均值
@@ -279,26 +282,26 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_DMA_Init();
-  MX_TIM3_Init();
+  // MX_TIM3_Init();
   // MX_TIM2_Init();
-  MX_TIM8_Init();
+  // MX_TIM8_Init();
   MX_SPI1_Init();
   /* USER CODE BEGIN 2 */
   
-  uint16_t g_led_frame[20]={0x0000,0xFFFF,0x0000,0xFFFF,0x0000,0xFFFF,0x0000,0xFFFF,0x0000,0xFFFF,0x0000,0xFFFF,0x0000,0xFFFF,0x0000,0xFFFF,0x0000,0xFFFF,0x0000};
+  // uint16_t g_led_frame[20]={0x0000,0xFFFF,0x0000,0xFFFF,0x0000,0xFFFF,0x0000,0xFFFF,0x0000,0xFFFF,0x0000,0xFFFF,0x0000,0xFFFF,0x0000,0xFFFF,0x0000,0xFFFF,0x0000};
 
   // 配置DMA回调函数（可选，但建议）
-  hdma_tim3_up.XferErrorCallback = Error_Handler;
-  hdma_tim8_up.XferErrorCallback = Error_Handler;
+  // hdma_tim3_up.XferErrorCallback = Error_Handler;
+  // hdma_tim8_up.XferErrorCallback = Error_Handler;
   
   // 启动定时器（必须）
-  HAL_TIM_Base_Start(&htim3);
-  HAL_TIM_Base_Start(&htim8);
+  // HAL_TIM_Base_Start(&htim3);
+  // HAL_TIM_Base_Start(&htim8);
   // HAL_TIM_Base_Start_IT(&htim2);
   
   // 使能定时器DMA请求（必须）
-  __HAL_TIM_ENABLE_DMA(&htim3, TIM_DMA_UPDATE);
-  __HAL_TIM_ENABLE_DMA(&htim8, TIM_DMA_UPDATE);
+  // __HAL_TIM_ENABLE_DMA(&htim3, TIM_DMA_UPDATE);
+  // __HAL_TIM_ENABLE_DMA(&htim8, TIM_DMA_UPDATE);
   
   // 初始化LED缓冲区
   ledBufferInit();
@@ -511,7 +514,14 @@ void StartSpiSlaveDma(void)
 {
   if (HAL_SPI_TransmitReceive_DMA(&hspi1, (uint8_t *)spiSlaveTxBuf, (uint8_t *)spiSlaveRxBuf, SPI_SLAVE_FRAME_COUNT) != HAL_OK)
   {
+    spiDmaError = 1;
     Error_Handler();
+  }
+  else
+  {
+    spiDmaStarted = 1;
+    spiDmaComplete = 0;
+    spiDmaError = 0;
   }
 }
 
@@ -520,6 +530,7 @@ void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef *hspi)
   if (hspi->Instance == SPI1)
   {
     spiTransferComplete = 1;
+    spiDmaComplete = 1;
   }
 }
 /* USER CODE END 4 */

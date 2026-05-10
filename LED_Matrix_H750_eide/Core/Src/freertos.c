@@ -115,7 +115,7 @@ void MX_FREERTOS_Init(void) {
   // renderDmaHandle = osThreadNew(StartRenderDma, NULL, &renderDma_attributes);
 
   /* creation of uiLogic */
-  // uiLogicHandle = osThreadNew(StartUiLogic, NULL, &uiLogic_attributes);
+  uiLogicHandle = osThreadNew(StartUiLogic, NULL, &uiLogic_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
