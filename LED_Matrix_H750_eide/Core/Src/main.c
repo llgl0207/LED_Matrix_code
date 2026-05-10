@@ -119,7 +119,7 @@ static const float kCubeAngleStep = 0.1745329f;
 void SystemClock_Config(void);
 static void MPU_Config(void);
 void MX_FREERTOS_Init(void);
-static void StartSpiSlaveDma(void);
+void StartSpiSlaveDma(void);
 /* USER CODE BEGIN PFP */
 /* USER CODE END PFP */
 
@@ -280,11 +280,11 @@ int main(void)
   MX_GPIO_Init();
   MX_DMA_Init();
   MX_TIM3_Init();
-  MX_TIM2_Init();
+  // MX_TIM2_Init();
   MX_TIM8_Init();
   MX_SPI1_Init();
   /* USER CODE BEGIN 2 */
-
+  
   uint16_t g_led_frame[20]={0x0000,0xFFFF,0x0000,0xFFFF,0x0000,0xFFFF,0x0000,0xFFFF,0x0000,0xFFFF,0x0000,0xFFFF,0x0000,0xFFFF,0x0000,0xFFFF,0x0000,0xFFFF,0x0000};
 
   // 配置DMA回调函数（可选，但建议）
@@ -294,7 +294,7 @@ int main(void)
   // 启动定时器（必须）
   HAL_TIM_Base_Start(&htim3);
   HAL_TIM_Base_Start(&htim8);
-  HAL_TIM_Base_Start_IT(&htim2);
+  // HAL_TIM_Base_Start_IT(&htim2);
   
   // 使能定时器DMA请求（必须）
   __HAL_TIM_ENABLE_DMA(&htim3, TIM_DMA_UPDATE);
@@ -302,8 +302,6 @@ int main(void)
   
   // 初始化LED缓冲区
   ledBufferInit();
-  
-  // g_pattern = PATTERN_CUBE;
   // ledBuildPatternFrames(g_pattern);
   // g_lastFrameTick = HAL_GetTick();
 
@@ -509,7 +507,7 @@ void StartUiLogic(void *argument){
   }
 }
 
-static void StartSpiSlaveDma(void)
+void StartSpiSlaveDma(void)
 {
   if (HAL_SPI_TransmitReceive_DMA(&hspi1, (uint8_t *)spiSlaveTxBuf, (uint8_t *)spiSlaveRxBuf, SPI_SLAVE_FRAME_COUNT) != HAL_OK)
   {
@@ -573,43 +571,10 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
     HAL_IncTick();
   }
   /* USER CODE BEGIN Callback 1 */
-  if (htim->Instance == TIM2)
-  {
-    // 检查是否正在刷新动画
-    if (isRefreshing)
-    {
-      // 计算当前阶段（0=前半圈AB模式, 1=后半圈BA模式）
-      uint8_t phase = (animationFrame < RAW_BUFFER_CYLINDER_NUM) ? 0 : 1;
-      // 计算当前帧在阶段内的索引（0-RAW_BUFFER_CYLINDER_NUM-1循环）
-      int frameIdx = animationFrame % RAW_BUFFER_CYLINDER_NUM;
-      
-      // 根据帧索引选择缓冲区（使用取模实现循环）
-      memFrameDma *currentFrame;
-      int dmaIdx = frameIdx % DMA_BUFFER_CYLINDER_NUM;
-      if (frameIdx < DMA_BUFFER_CYLINDER_NUM) {
-        // 使用FrameDmaA
-        currentFrame = &FrameDmaA[dmaIdx];
-      } else {
-        // 使用FrameDmaB
-        currentFrame = &FrameDmaB[dmaIdx];
-      }
-      
-      // 输出模式：前半圈AB模式，后半圈BA模式
-      uint8_t outputMode = phase;
-      ledPushGPIO(currentFrame, outputMode);
-      
-      // 更新动画帧计数器
-      animationFrame++;
-      
-      // 检查是否播放完毕（2*RAW_BUFFER_CYLINDER_NUM帧完成一圈）
-      if (animationFrame >= RAW_BUFFER_CYLINDER_NUM * 2)
-      {
-        // 刷新完成
-        isRefreshing = 0;
-        animationFrame = 0;
-      }
-    }
-  }
+  // if (htim->Instance == TIM2)
+  // {
+  //   // TIM2 LED 渲染逻辑已禁用，用于排查 SPI DMA 干扰。
+  // }
   /* USER CODE END Callback 1 */
 }
 
