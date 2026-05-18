@@ -13,7 +13,8 @@
 //0: RGB协议，1: GRB协议
 #define COLOR_DEPTH 4  // 颜色深度：8=RGB888(24位), 4=RGB444(12位)
 
-#define BRIGHT_SHIFT 6  // RGB888模式下的亮度调整位数，0~7
+extern uint8_t g_brightShift;
+#define BRIGHT_SHIFT g_brightShift
 
 // 根据颜色深度计算缓冲区大小
 #if COLOR_DEPTH == 8

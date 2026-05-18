@@ -68,20 +68,22 @@ uint8_t historyIndex = 0;        // 当前存储位置索引
 uint8_t sampleCount = 0;         // 当前已有样本数量
 
 typedef enum {
-  PATTERN_COLOR = 0,
-  PATTERN_CYLINDER = 1,
-  PATTERN_CONE = 2,
-  PATTERN_CUBE = 3
+  PATTERN_TEXT = 0,
+  PATTERN_CUBE = 1,
+  PATTERN_SPHERE = 2,
+  PATTERN_DOUBLE_HELIX = 3,
+  PATTERN_CONE = 4
 } PatternType;
 
-static PatternType g_pattern = PATTERN_CUBE;
+static PatternType g_pattern = PATTERN_TEXT;
 static const float kHeightToWidth = 2.0f;
-static const PatternType kPatternCycle[] = {PATTERN_CYLINDER, PATTERN_CONE, PATTERN_CUBE};
+static const PatternType kPatternCycle[] = {PATTERN_TEXT, PATTERN_CUBE, PATTERN_SPHERE, PATTERN_DOUBLE_HELIX, PATTERN_CONE};
 static uint8_t g_patternIndex = 0;
 static uint32_t g_lastPatternTick = 0;
 static uint32_t g_lastFrameTick = 0;
 static float g_cubeAngle = 0.0f;
 static const float kCubeAngleStep = 0.1745329f;
+uint8_t g_brightShift = 6;
 
 /*
 注意，当前的显示器设计是RAW_BUFFER_CYLINDER_NUM个RAW切片，每个切片内包含两个数组，分别在各自对面，
@@ -121,63 +123,54 @@ static void ledBuildPatternFrames(PatternType pattern){
     ledBufferClearRaw(fillRaw[frameIdx].ledBufferRawB);
 
     switch (pattern) {
-      case PATTERN_COLOR: {
-        uint32_t colors[8] = {
-          0xFF0000,
-          0x00FF00,
-          0x0000FF,
-          0xFFFF00,
-          0xFF00FF,
-          0x00FFFF,
-          0xFF8800,
-          0xFF88FF
+      case PATTERN_TEXT: {
+        // ========== 0. A2JY09 滚动文本 ==========
+        const uint8_t font[6][7] = {
+          {0x0E, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x11}, // A
+          {0x0E, 0x11, 0x02, 0x04, 0x08, 0x10, 0x1F}, // 2
+          {0x07, 0x01, 0x01, 0x01, 0x11, 0x11, 0x0E}, // J
+          {0x11, 0x11, 0x0A, 0x04, 0x04, 0x04, 0x04}, // Y
+          {0x0E, 0x11, 0x13, 0x15, 0x19, 0x11, 0x0E}, // 0
+          {0x0E, 0x11, 0x11, 0x0F, 0x01, 0x11, 0x0E}  // 9
         };
-
-        int colorIdx = (frameIdx * 8) / RAW_BUFFER_CYLINDER_NUM;
-        uint32_t colorA = colors[colorIdx % 8];
-        uint32_t colorB = colors[(colorIdx + 4) % 8];
-
-        for (int ledPos = 0; ledPos < ONE_BUS_LED_NUM; ledPos++) {
-          for (int io = 0; io < 16; io++) {
-            ledSetColorOneRaw(fillRaw[frameIdx].ledBufferRawA, ledPos, io, colorA);
-            ledSetColorOneRaw(fillRaw[frameIdx].ledBufferRawB, ledPos, io, colorB);
-          }
-        }
-        break;
-      }
-      case PATTERN_CYLINDER: {
-        for (int ledPos = 0; ledPos < ONE_BUS_LED_NUM; ledPos++) {
-          for (int io = 0; io < 16; io++) {
-            ledSetColorOneRaw(fillRaw[frameIdx].ledBufferRawA, ledPos, io, 0xFFFFFF);
-            ledSetColorOneRaw(fillRaw[frameIdx].ledBufferRawB, ledPos, io, 0xFFFFFF);
-          }
-        }
-        break;
-      }
-      case PATTERN_CONE: {
+        // 用 g_cubeAngle 驱动滚动，128 列覆盖一圈
+        int scroll_offset = (int)(g_cubeAngle * 128.0f / 3.1415926f); 
+        int colA = frameIdx;
+        // B 面正好与 A 面差半圈(64列)
+        int colB = frameIdx + RAW_BUFFER_CYLINDER_NUM;
+        
         for (int io = 0; io < 16; io++) {
-          float z = 1.0f - (2.0f * ((float)io / 15.0f));
-          float zScaled = z / kHeightToWidth;
-          float t = (zScaled + 1.0f) * 0.5f;
-          if (t < 0.0f) {
-            t = 0.0f;
-          }
-          if (t > 1.0f) {
-            t = 1.0f;
-          }
-          int radiusCount = (int)((t * (float)ONE_BUS_LED_NUM) + 0.5f);
-          int start = ONE_BUS_LED_NUM - radiusCount;
-          if (start < 0) {
-            start = 0;
-          }
-          for (int ledPos = start; ledPos < ONE_BUS_LED_NUM; ledPos++) {
-            ledSetColorOneRaw(fillRaw[frameIdx].ledBufferRawA, ledPos, io, 0xFFFFFF);
-            ledSetColorOneRaw(fillRaw[frameIdx].ledBufferRawB, ledPos, io, 0xFFFFFF);
+          int row = io - 4; // 垂直居中，留白由于总高度为16，字符高度为7，(16-7)/2 凑整为大概 4 行起始
+          if (row >= 0 && row < 7) {
+            // == 渲染 A 面 ==
+            int rel_col_A = (colA - scroll_offset + 1024) % 128;
+            if (rel_col_A < 42) { // 6个字符 * 7宽（5个字面宽+2列间隙）= 42列
+              int char_idx = rel_col_A / 7;
+              int x = rel_col_A % 7;
+              // 在5列字宽内，检查点阵数据对应比特位
+              if (x < 5 && (font[char_idx][row] & (1 << (4 - x)))) {
+                uint32_t color = ledRainbowColor((float)char_idx * 1.0f + g_cubeAngle);
+                for (int depth = 0; depth < 3; depth++) // 赋予厚度
+                  ledSetColorOneRaw(fillRaw[frameIdx].ledBufferRawA, depth, io, color);
+              }
+            }
+            // == 渲染 B 面 ==
+            int rel_col_B = (colB - scroll_offset + 1024) % 128;
+            if (rel_col_B < 42) {
+              int char_idx = rel_col_B / 7;
+              int x = rel_col_B % 7;
+              if (x < 5 && (font[char_idx][row] & (1 << (4 - x)))) {
+                uint32_t color = ledRainbowColor((float)char_idx * 1.0f + g_cubeAngle);
+                for (int depth = 0; depth < 3; depth++)
+                  ledSetColorOneRaw(fillRaw[frameIdx].ledBufferRawB, depth, io, color);
+              }
+            }
           }
         }
         break;
       }
       case PATTERN_CUBE: {
+        // ========== 1. 旋转的渐变立方体 ==========
         const float cubeHalf = 0.75f;
         float theta = g_cubeAngle + (3.1415926f * (float)frameIdx) / (float)RAW_BUFFER_CYLINDER_NUM;
         float c = cosf(theta);
@@ -193,6 +186,81 @@ static void ledBuildPatternFrames(PatternType pattern){
             float az = fabsf(z) / kHeightToWidth;
             if ((ax <= cubeHalf) && (ay <= cubeHalf) && (az <= cubeHalf)) {
               float phase = g_cubeAngle + (float)frameIdx * 0.12f + (float)ledPos * 0.35f + (float)io * 0.22f;
+              uint32_t color = ledRainbowColor(phase);
+              ledSetColorOneRaw(fillRaw[frameIdx].ledBufferRawA, ledPos, io, color);
+              ledSetColorOneRaw(fillRaw[frameIdx].ledBufferRawB, ledPos, io, color);
+            }
+          }
+        }
+        break;
+      }
+      case PATTERN_SPHERE: {
+        // ========== 2. 旋转的渐变球体 ==========
+        const float radius = 0.70f;
+        float theta = g_cubeAngle + (3.1415926f * (float)frameIdx) / (float)RAW_BUFFER_CYLINDER_NUM;
+        float c = cosf(theta);
+        float s = sinf(theta);
+        for (int ledPos = 0; ledPos < ONE_BUS_LED_NUM; ledPos++) {
+          float r = 1.0f - ((float)ledPos / 15.0f);
+          float x = r * c;
+          float y = r * s;
+          for (int io = 0; io < 16; io++) {
+            float z = 1.0f - (2.0f * ((float)io / 15.0f));
+            float z_adj = z / kHeightToWidth;
+            float dist = sqrtf(x*x + y*y + z_adj*z_adj);
+            if (dist <= radius) {
+              float phase = dist * 4.0f - g_cubeAngle * 2.0f; // 颜色呈同心圆扩散
+              uint32_t color = ledRainbowColor(phase);
+              ledSetColorOneRaw(fillRaw[frameIdx].ledBufferRawA, ledPos, io, color);
+              ledSetColorOneRaw(fillRaw[frameIdx].ledBufferRawB, ledPos, io, color);
+            }
+          }
+        }
+        break;
+      }
+      case PATTERN_DOUBLE_HELIX: {
+        // ========== 3. 双螺旋 (DNA结构) ==========
+        float theta = (3.1415926f * (float)frameIdx) / (float)RAW_BUFFER_CYLINDER_NUM;
+        for (int io = 0; io < 16; io++) {
+          float z = 1.0f - (2.0f * ((float)io / 15.0f));
+          // 螺旋的两个极角（高度相关并随着时间旋转）
+          float angle1 = z * 3.1415926f + g_cubeAngle * 2.0f;
+          float angle2 = angle1 + 3.1415926f; // 对侧螺旋
+          
+          for (int ledPos = 0; ledPos < ONE_BUS_LED_NUM; ledPos++) {
+            float r = 1.0f - ((float)ledPos / 15.0f);
+            
+            // 将点所在的空间角 theta 与两组螺旋角做差
+            float d1 = fabsf(sinf((theta - angle1) / 2.0f));
+            float d2 = fabsf(sinf((theta - angle2) / 2.0f));
+            
+            // 半径在0.6~0.8附近，且角度逼近螺旋角的轨迹被点亮
+            if ((r > 0.6f && r < 0.8f) && (d1 < 0.15f || d2 < 0.15f)) {
+              float phase = z * 2.0f + g_cubeAngle;
+              uint32_t color = ledRainbowColor(phase);
+              ledSetColorOneRaw(fillRaw[frameIdx].ledBufferRawA, ledPos, io, color);
+              ledSetColorOneRaw(fillRaw[frameIdx].ledBufferRawB, ledPos, io, color);
+            }
+          }
+        }
+        break;
+      }
+      case PATTERN_CONE: {
+        // ========== 4. 多棱倒锥体 ==========
+        float theta = g_cubeAngle + (3.1415926f * (float)frameIdx) / (float)RAW_BUFFER_CYLINDER_NUM;
+        for (int io = 0; io < 16; io++) {
+          float z = 1.0f - (2.0f * ((float)io / 15.0f));
+          float radius_limit = (z + 1.0f) * 0.45f; // 随高度变大的半径（倒锥）
+          
+          for (int ledPos = 0; ledPos < ONE_BUS_LED_NUM; ledPos++) {
+            float r = 1.0f - ((float)ledPos / 15.0f);
+            
+            // 制造棱角感 (利用多边型轨迹: r * cos(theta % (pi/N)))
+            float angle_mod = fmodf(theta, 1.570796f) - 0.785398f; // fmod(theta, pi/2) - pi/4 形如正方形
+            float dist = r * cosf(angle_mod);
+            
+            if (dist <= radius_limit) {
+              float phase = z * 1.5f + r * 2.0f - g_cubeAngle;
               uint32_t color = ledRainbowColor(phase);
               ledSetColorOneRaw(fillRaw[frameIdx].ledBufferRawA, ledPos, io, color);
               ledSetColorOneRaw(fillRaw[frameIdx].ledBufferRawB, ledPos, io, color);
@@ -278,9 +346,11 @@ int main(void)
   // 初始化LED缓冲区
   ledBufferInit();
   
-  g_pattern = PATTERN_CUBE;
+  g_patternIndex = 0;
+  g_pattern = kPatternCycle[g_patternIndex];
   ledBuildPatternFrames(g_pattern);
   g_lastFrameTick = HAL_GetTick();
+  g_lastPatternTick = g_lastFrameTick;
 
   /* USER CODE END 2 */
 
@@ -290,11 +360,27 @@ int main(void)
   {
     uint32_t now = HAL_GetTick();
     if ((now - g_lastFrameTick) >= 50) {
-      g_pattern = PATTERN_CUBE;
-      g_cubeAngle += kCubeAngleStep;
+      g_cubeAngle += kCubeAngleStep; // 用于动画时间变量
       if (g_cubeAngle > 6.2831852f) {
         g_cubeAngle -= 6.2831852f;
       }
+      
+      uint32_t switchInterval = (g_pattern == PATTERN_TEXT) ? 8000 : 5000;
+      
+      // 自动切换图案
+      if ((now - g_lastPatternTick) >= switchInterval) {
+        g_patternIndex = (g_patternIndex + 1) % 5; // 现在共有 5 个动画
+        g_pattern = kPatternCycle[g_patternIndex];
+        g_lastPatternTick = now;
+      }
+      
+      // 文字需要更亮（偏移量越少亮度越高）
+      if (g_pattern == PATTERN_TEXT) {
+          g_brightShift = 3;  // 文字最外侧圈更亮
+      } else {
+          g_brightShift = 6;  // 内部图形稍暗，避免光晕散开刺眼
+      }
+
       ledBuildPatternFrames(g_pattern);
       g_lastFrameTick = now;
     }
