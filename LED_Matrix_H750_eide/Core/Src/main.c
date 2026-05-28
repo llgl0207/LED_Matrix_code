@@ -464,6 +464,8 @@ int main(void)
       // 文字需要更亮（偏移量越少亮度越高）
       if (g_pattern == PATTERN_TEXT) {
           g_brightShift = 2;  // 文字更亮以提高辨识度
+      } else if (g_pattern == PATTERN_RUNNER) {
+          g_brightShift = 3;  // 开合跳小人更亮
       } else {
           g_brightShift = 6;  // 内部图形稍暗，避免光晕散开刺眼
       }
