@@ -73,12 +73,13 @@ typedef enum {
   PATTERN_SPHERE = 2,
   PATTERN_DOUBLE_HELIX = 3,
   PATTERN_SATURN = 4,
-  PATTERN_RUNNER = 5
+  PATTERN_RUNNER = 5,
+  PATTERN_BIRDCAGE = 6
 } PatternType;
 
 static PatternType g_pattern = PATTERN_TEXT;
 static const float kHeightToWidth = 2.0f;
-static const PatternType kPatternCycle[] = {PATTERN_TEXT, PATTERN_CUBE, PATTERN_SPHERE, PATTERN_DOUBLE_HELIX, PATTERN_SATURN, PATTERN_RUNNER};
+static const PatternType kPatternCycle[] = {PATTERN_TEXT, PATTERN_CUBE, PATTERN_SPHERE, PATTERN_DOUBLE_HELIX, PATTERN_SATURN, PATTERN_RUNNER, PATTERN_BIRDCAGE};
 static uint8_t g_patternIndex = 0;
 static uint32_t g_lastPatternTick = 0;
 static uint32_t g_lastFrameTick = 0;
@@ -347,6 +348,86 @@ static void ledBuildPatternFrames(PatternType pattern){
         }
         break;
       }
+      case PATTERN_BIRDCAGE: {
+        // ========== 6. 大鹏展翅 ==========
+        float S=1.60f,phase=g_cubeAngle*2.8f;
+        float sn=sinf(phase);
+        float flU=sn>0?sn:0, flD=sn<0?sn:0; // 上/下非对称
+        float My=0.30f, Ty=0.24f+flD*0.12f;  // 翼中/尖 y
+        float Mz=0.16f+flU*0.02f+flD*0.06f;  // 翼中 z
+        float Tz=0.16f+flU*0.06f+flD*0.50f;  // 翼尖 z (大幅)
+        // 19段: 体6+喙2+左翼4+右翼4+尾3
+        // 每段:{bx,by,bz, ex,ey,ez}
+        float seg[][6]={
+          // 体 (0-5)
+          {-0.20f,0,-0.02f, 0.10f,0,-0.02f},   // 脊线
+          {0.10f,0,-0.02f,-0.06f,0, 0.04f},     // 背弧
+          {-0.20f,0,-0.02f,-0.06f,0,-0.10f},    // 腹弧
+          {0.10f,0,-0.02f, 0.05f,0,-0.08f},     // 胸
+          {0.10f,0,-0.02f, 0.20f,0, 0.03f},     // 颈
+          {-0.06f,0,-0.02f, 0.05f,0.08f, 0.03f},// 体侧R
+          // 喙 (6-7)
+          {0.30f,0, 0.05f, 0.48f,0, 0.12f},     // 上喙
+          {0.30f,0, 0.02f, 0.44f,0, 0.07f},     // 下喙
+          // 左翼 (8-11)
+          {0.02f,0,0, 0.0f, My,Mz},              // L1根→中
+          {0.0f,My,Mz, -0.12f, Ty,Tz},           // L1中→尖
+          {0.02f,0,0, 0.0f, My+0.06f,Mz},        // L2根→中
+          {0.0f,My+0.06f,Mz, -0.12f, Ty+0.06f,Tz},// L2中→尖
+          // 右翼 (12-15) y 取反
+          {0.02f,0,0, 0.0f,-My,Mz},
+          {0.0f,-My,Mz, -0.12f,-Ty,Tz},
+          {0.02f,0,0, 0.0f,-(My+0.06f),Mz},
+          {0.0f,-(My+0.06f),Mz, -0.12f,-(Ty+0.06f),Tz},
+          // 尾 (16-18)
+          {-0.20f,0,-0.02f,-0.36f,0,0},
+          {-0.20f,0,-0.02f,-0.32f, 0.10f,0.04f},
+          {-0.20f,0,-0.02f,-0.32f,-0.10f,0.04f},
+        };
+        int nS=19; float hR2=0.008f, wTh2=0.012f, bTh2=0.007f;
+        int showWings=((int)(g_cubeAngle/6.2831852f)&1)==0; // 隔圈显翅
+        float th=(3.1415926f*(float)frameIdx)/(float)RAW_BUFFER_CYLINDER_NUM;
+        float ct=cosf(th),st=sinf(th);
+        for(int ledPos=0;ledPos<ONE_BUS_LED_NUM;ledPos++){
+          float r=1.0f-((float)ledPos/15.0f),px=r*ct,py=r*st;
+          for(int io=0;io<16;io++){
+            float pz=(1.0f-(2.0f*((float)io/15.0f)))/kHeightToWidth;
+            // A面
+            float sx=px/S,sy=py/S,sz=pz/S;
+            int hA=0;
+            if(sx*sx+sy*sy+(sz-0.04f)*(sz-0.04f)<=hR2)hA=1;
+            if(!hA&&(sx-0.30f)*(sx-0.30f)+sy*sy+(sz-0.08f)*(sz-0.08f)<=0.0012f)hA=1;
+            if(!hA)for(int i=0;i<nS;i++){
+              if(!showWings&&i>=8&&i<=15)continue;
+              float th2=(i<8||i>=16)?bTh2:wTh2;
+              float*ss=seg[i];
+              float da=ss[3]-ss[0],db=ss[4]-ss[1],dc=ss[5]-ss[2],len2=da*da+db*db+dc*dc;
+              float t=((sx-ss[0])*da+(sy-ss[1])*db+(sz-ss[2])*dc)/(len2+0.0001f);
+              if(t<0)t=0;if(t>1)t=1;
+              float cx=ss[0]+t*da,cy=ss[1]+t*db,cz=ss[2]+t*dc;
+              if((sx-cx)*(sx-cx)+(sy-cy)*(sy-cy)+(sz-cz)*(sz-cz)<=th2){hA=1;break;}
+            }
+            if(hA)ledSetColorOneRaw(fillRaw[frameIdx].ledBufferRawA,ledPos,io,0xFFFFFF);
+            // B面(背面)
+            float sbx=-sx,sby=-sy,sbz=sz;
+            int hB=0;
+            if(sbx*sbx+sby*sby+(sbz-0.04f)*(sbz-0.04f)<=hR2)hB=1;
+            if(!hB&&(sbx-0.30f)*(sbx-0.30f)+sby*sby+(sbz-0.08f)*(sbz-0.08f)<=0.0012f)hB=1;
+            if(!hB)for(int i=0;i<nS;i++){
+              if(!showWings&&i>=8&&i<=15)continue;
+              float th2=(i<8||i>=16)?bTh2:wTh2;
+              float*ss=seg[i];
+              float da=ss[3]-ss[0],db=ss[4]-ss[1],dc=ss[5]-ss[2],len2=da*da+db*db+dc*dc;
+              float t=((sbx-ss[0])*da+(sby-ss[1])*db+(sbz-ss[2])*dc)/(len2+0.0001f);
+              if(t<0)t=0;if(t>1)t=1;
+              float cx=ss[0]+t*da,cy=ss[1]+t*db,cz=ss[2]+t*dc;
+              if((sbx-cx)*(sbx-cx)+(sby-cy)*(sby-cy)+(sbz-cz)*(sbz-cz)<=th2){hB=1;break;}
+            }
+            if(hB)ledSetColorOneRaw(fillRaw[frameIdx].ledBufferRawB,ledPos,io,0xFFFFFF);
+          }
+        }
+        break;
+      }
       default:
         break;
     }
@@ -449,14 +530,16 @@ int main(void)
       } else if (g_pattern == PATTERN_SATURN) {
           switchInterval = 12000;
       } else if (g_pattern == PATTERN_RUNNER) {
-          switchInterval = 10000;
+          switchInterval = 8000;
+      } else if (g_pattern == PATTERN_BIRDCAGE) {
+          switchInterval = 15000;
       } else {
           switchInterval = 5000;
       }
       
       // 自动切换图案
       if ((now - g_lastPatternTick) >= switchInterval) {
-        g_patternIndex = (g_patternIndex + 1) % 6; // 现在共有 6 个动画
+        g_patternIndex = (g_patternIndex + 1) % 7;
         g_pattern = kPatternCycle[g_patternIndex];
         g_lastPatternTick = now;
       }
