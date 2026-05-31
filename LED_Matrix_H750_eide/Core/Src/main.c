@@ -87,8 +87,14 @@ static float g_cubeAngle = 0.0f;
 static const float kCubeAngleStep = 0.1745329f;
 uint8_t g_brightShift = 6;
 
+// SPI 接收相关
+#define SPI_RX_BUFFER_SIZE 10
+uint8_t g_spi_rx_buffer[SPI_RX_BUFFER_SIZE];
+uint8_t g_spi_rx_flag = 0; // 收到了数据的标志位
+
 /*
 注意，当前的显示器设计是RAW_BUFFER_CYLINDER_NUM个RAW切片，每个切片内包含两个数组，分别在各自对面，
+
 这个体积显示器是对称的两个半柱面，所以每个RAW切片的数据会被转换成两个DMA切片，分别输出到GPIOD和GPIOE。
 所有RAW切片遍历完一次后，显示器其实只转过了半圈，这时就要调换RAW切片下的AB输出方向，将D和E对调，重新输出。
 此外，GPIO下的16个IO对应的是从上到下的16行，每一行里的16个灯对应的是从外到内的16列，所以数组末尾的灯是最内侧的灯。
@@ -104,6 +110,19 @@ static void MPU_Config(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+void HAL_SPI_RxCpltCallback(SPI_HandleTypeDef *hspi) {
+  if (hspi->Instance == SPI1) {
+    // 标记接收到了数据
+    g_spi_rx_flag = 1;
+    
+    // 你可以在这里处理 g_spi_rx_buffer 中的数据
+    // 例如：判断特定指令，切换模式，等等
+    
+    // 重新开启下一次接收
+    HAL_SPI_Receive_IT(&hspi1, g_spi_rx_buffer, SPI_RX_BUFFER_SIZE);
+  }
+}
 
 static uint32_t ledRainbowColor(float phase){
   float r = sinf(phase) * 0.5f + 0.5f;
@@ -510,6 +529,9 @@ int main(void)
   ledBuildPatternFrames(g_pattern);
   g_lastFrameTick = HAL_GetTick();
   g_lastPatternTick = g_lastFrameTick;
+
+  // 启动第一次 SPI 接收中断
+  HAL_SPI_Receive_IT(&hspi1, g_spi_rx_buffer, SPI_RX_BUFFER_SIZE);
 
   /* USER CODE END 2 */
 

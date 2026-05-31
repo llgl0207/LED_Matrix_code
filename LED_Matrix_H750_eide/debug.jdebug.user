@@ -1,20 +1,20 @@
 
 
 
-Breakpoint=e:/EE/LED_Matrix_code/LED_Matrix_H750_eide/Core/Src/main.c:305:24, State=BP_STATE_DISABLED
-Breakpoint=e:/EE/LED_Matrix_code/LED_Matrix_H750_eide/Core/Src/main.c:365:3, State=BP_STATE_DISABLED
+Breakpoint=e:/EE/LED_Matrix_code/LED_Matrix_H750_eide/Core/Src/main.c:309:3, State=BP_STATE_DISABLED
+Breakpoint=e:/EE/LED_Matrix_code/LED_Matrix_H750_eide/Core/Src/main.c:371:7, State=BP_STATE_DISABLED
+OpenDocument="main.c", FilePath="e:/EE/LED_Matrix_code/LED_Matrix_H750_eide/Core/Src/main.c", Line=232
 OpenDocument="startup_stm32h750xx.s", FilePath="e:/EE/LED_Matrix_code/LED_Matrix_H750_eide/MDK-ARM/startup_stm32h750xx.s", Line=225
-OpenDocument="main.c", FilePath="e:/EE/LED_Matrix_code/LED_Matrix_H750_eide/Core/Src/main.c", Line=195
-OpenDocument="stm32h7xx_hal_gpio.c", FilePath="e:/EE/LED_Matrix_code/LED_Matrix_H750_eide/Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_hal_gpio.c", Line=489
+OpenDocument="stm32h7xx_hal_gpio.c", FilePath="e:/EE/LED_Matrix_code/LED_Matrix_H750_eide/Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_hal_gpio.c", Line=0
 OpenDocument="stm32h7xx_hal.c", FilePath="e:/EE/LED_Matrix_code/LED_Matrix_H750_eide/Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_hal.c", Line=398
 OpenDocument="stm32h7xx_hal_rcc.c", FilePath="e:/EE/LED_Matrix_code/LED_Matrix_H750_eide/Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_hal_rcc.c", Line=1203
 OpenDocument="stm32h7xx_hal_tim.c", FilePath="e:/EE/LED_Matrix_code/LED_Matrix_H750_eide/Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_hal_tim.c", Line=3958
 OpenToolbar="Debug", Floating=0, x=0, y=0
-OpenWindow="Source Files", DockArea=LEFT, x=0, y=1, w=1112, h=521, TabPos=1, TopOfStack=0, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=0
-OpenWindow="Disassembly", DockArea=RIGHT, x=0, y=0, w=524, h=525, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=0
-OpenWindow="Watched Data 1", DockArea=LEFT, x=0, y=1, w=1112, h=521, TabPos=0, TopOfStack=1, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=0
-OpenWindow="Data Sampling", DockArea=RIGHT, x=0, y=1, w=524, h=802, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=0, VisibleTab=0, UniformSampleSpacing=0
-OpenWindow="Timeline", DockArea=LEFT, x=0, y=0, w=1112, h=787, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=1, DataPaneShown=1, PowerPaneShown=0, CodePaneShown=0, PinCursor="Cursor Movable", TimePerDiv="5 s / Div", TimeStampFormat="Time", DataGraphDrawAsPoints=0, DataGraphLegendShown=1, DataGraphUniformSampleSpacing=0, DataGraphLegendPosition="885;0", DataGraphShowNamesAtCursor=0, PowerGraphDrawAsPoints=0, PowerGraphLegendShown=0, PowerGraphAvgFilterTime=Off, PowerGraphAvgFilterLen=Off, PowerGraphUniformSampleSpacing=0, PowerGraphLegendPosition="885;0", CodeGraphLegendShown=0, CodeGraphLegendPosition="901;0"
+OpenWindow="Source Files", DockArea=LEFT, x=0, y=1, w=1112, h=525, TabPos=1, TopOfStack=0, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=0
+OpenWindow="Disassembly", DockArea=RIGHT, x=0, y=0, w=524, h=530, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=0
+OpenWindow="Watched Data 1", DockArea=LEFT, x=0, y=1, w=1112, h=525, TabPos=0, TopOfStack=1, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=0
+OpenWindow="Data Sampling", DockArea=RIGHT, x=0, y=1, w=524, h=797, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=0, VisibleTab=0, UniformSampleSpacing=0
+OpenWindow="Timeline", DockArea=LEFT, x=0, y=0, w=1112, h=783, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=1, DataPaneShown=1, PowerPaneShown=0, CodePaneShown=0, PinCursor="Cursor Movable", TimePerDiv="5 s / Div", TimeStampFormat="Time", DataGraphDrawAsPoints=0, DataGraphLegendShown=1, DataGraphUniformSampleSpacing=0, DataGraphLegendPosition="885;0", DataGraphShowNamesAtCursor=0, PowerGraphDrawAsPoints=0, PowerGraphLegendShown=0, PowerGraphAvgFilterTime=Off, PowerGraphAvgFilterLen=Off, PowerGraphUniformSampleSpacing=0, PowerGraphLegendPosition="865;0", CodeGraphLegendShown=0, CodeGraphLegendPosition="881;0"
 OpenWindow="Console", DockArea=BOTTOM, x=0, y=0, w=2560, h=119, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=0
 SmartViewPlugin="", Page="", Toolbar="Hidden", Window="SmartView 1"
 TableHeader="Source Files", SortCol="File", SortOrder="ASCENDING", VisibleCols=["File";"Status";"Size";"#Insts";"Path"], ColWidths=[239;100;100;100;838]

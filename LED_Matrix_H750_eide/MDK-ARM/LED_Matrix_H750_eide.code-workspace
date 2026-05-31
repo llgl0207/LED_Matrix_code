@@ -7,7 +7,7 @@
             "path": ".."
         },
         {
-            "path": "../../IDF_S3"
+            "path": "../../esp32s3"
         }
     ],
     "settings": {
